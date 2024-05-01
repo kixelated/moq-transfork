@@ -290,18 +290,23 @@ Objects can be used to carry media frames, metadata, control messages, or really
 Bidirectional streams are used for control messages.
 
 The first varint of each stream indicates the type.
+Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION. 
 
-|------|-----------|
-| ID   | Type      |
-|-----:|:----------|
-| 0x0  | SETUP     |
-|------|-----------|
-| 0x1  | ANNOUNCE  |
-|------|-----------|
-| 0x2  | SUBSCRIBE |
-|------|-----------|
+|------|-----------|-------
+| ID   | Type      | Role |
+|-----:|:----------|-------
+| 0x0  | SETUP     | Client |
+|------|-----------|-|
+| 0x1  | ANNOUNCE  | Publisher |
+|------|-----------|-|
+| 0x2  | SUBSCRIBE | Subscriber |
+|------|-----------|-|
+| 0x3  | FETCH     | Subscriber |
+|------|-----------|--|
+| 0x4  | INFO      | Subscriber |
+|------|-----------|--|
 
-## SETUP stream
+## SETUP Stream
 Upon establishing the WebTransport session, the client opens a SETUP stream.
 
 The client sends a SETUP_CLIENT message, containing:
@@ -318,7 +323,7 @@ The session remains active until the SETUP stream is closed by either endpoint v
 
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
-## ANNOUNCE stream
+## ANNOUNCE Stream
 A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
 
 ~~~
@@ -327,30 +332,80 @@ ANNOUNCE Message {
 }
 ~~~
 
-The subscriber MUST reply on the same stream with an ANNOUNCE_OK message, or close the stream with an error.
+The subscriber MUST reply on the same stream with an OK message, or close the stream with an error.
 
 ~~~
-ANNOUNCE_OK Message {
+OK Message {
 }
 ~~~
 
 The announcement remains active until the ANNOUNCE stream is closed by either endpoint via a clean termination or error code.
 
-## SUBSCRIBE stream
-A subscriber can open multiple SUBSCRIBE streams to request a track.
+## SUBSCRIBE Stream
+A subscriber can open a SUBSCRIBE stream to request a track.
 
 ~~~
 SUBSCRIBE Message {
+  Subscribe ID (i),
   Broadcast Name (b),
   Track Name (b),
-  Start Group (i),
-  End Group (i),
+  Priority (i),
+  Order (i),
+  Min Group (i),
+  Max Group (i),
 }
 ~~~
 
+**Priority**: The preferred priority of the groups relative to all other FETCH and SUBSCRIBE within the session. The publisher should transmit *lower* values first during congestion.
+
+**Order**: The preferred order of the groups within the subscription. The publisher should transmit groups based on their sequence number in any (0), ascending (1), or descending (2) order.
+
+**Min Group**: The minimum group sequence number plus 1. A value of 0 indicates the latest group as determined by the publisher.
+
+**Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
+
+
+## FETCH Stream
+A subscriber can open a FETCH stream to receive a single GROUP at a specified offset.
+This is primarily used to recover from an abrupt stream termination.
+
+~~~
+FETCH Message {
+  Broadcast Name (b)
+  Track Name (b)
+  Priority (i)
+  Group (i)
+  Offset (i)
+}
+~~~
+
+**Priority**: The preferred priority of the group relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
+
+**Offset**: The requested offset in bytes *after* the GROUP header, but including and OBJECT headers.
+
+The publisher replies with a GROUP header on the same stream.
+This is notably different from SUBSCRIBE.
+
+## INFO Stream
 
 # Data Streams
+Unidirectional streams are used for subscription data.
 
+|------|-----------|-------
+| ID   | Type      | Role |
+|-----:|:----------|-------
+| 0x0  | GROUP     | Publisher |
+|------|-----------|-|
+
+## GROUP Stream
+The publisher creates GROUP streams in response to a SUBSCRIBE.
+
+~~~
+GROUP Message {
+  Subscribe ID (i)
+  Group Sequence (i)
+}
+~~~
 
 {::boilerplate bcp14-tagged}
 
