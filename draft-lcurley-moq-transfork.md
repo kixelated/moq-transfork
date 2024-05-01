@@ -41,6 +41,7 @@ normative:
 
 informative:
   moqt: draft-ietf-moq-transport
+  quic-streams: draft-kazuho-quic-quic-on-streams
 
 
 --- abstract
@@ -53,29 +54,33 @@ TODO Abstract
 # Fork
 As one of the authors of the MoqTransport ([moqt]) draft, it is counter-intuitive to fork my own draft.
 However, I think its the most constructive way forward.
-Hear me out.
+Hear me out...
 
 ## Motivation
 The Media over QUIC working group contains some amazing ideals and ideas.
 There's been a lot of organic growth and we will eventually produce something special.
 I fully support the goals of the working group and the IETF process.
 
-However, we're in the precarious position of developing a protocol via committee for a technology still in its infacy.
-There's virtually no implementations in production and yet we're trying to standardize something.
-Most of our discussions are theoretical and it's become very difficult (personally) to make progress.
-
+However, we're in the precarious position of developing a protocol via committee using a technology still in its infacy.
+With such theoritical discussions, it's easy to lose sight of the practical implications of our decisions.
+And personally, it's become very draining to make forward progress.
 In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
 
+This fork is meant to be constructive.
+Sometimes the best way to argue for a solution is to present an alternative.
+My hope is that some of these ideas will be adopted by the working group, even if others will be discarded.
+And I'm just tired of posting hundreds of issues/messages/PRs and getting nowhere.
+
 ## Critique
-A quick critique of the MoqTransport draft.
+A quick critique of the MoqTransport draft as why I felt the need to fork it.
 
 ### Object Model
 The MoqTransport draft introduces the concept of Objects, Groups, and Tracks.
-While these are generic terms and there's no explicit media mapping on purpose, the implicit intent is that:
+While these are generic terms and there's no explicit media mapping on purpose, the implicit mapping is:
 
-- **Object**: Audio/Video Frame
-- **Group**: Group of Pictures (video only)
-- **Track**: Audio/Video Track
+- **Object** = Audio/Video Frame
+- **Group** = Group of Pictures (video only)
+- **Track** = Audio/Video Track
 
 But how do you actually transmit a media frame over QUIC?
 The unfortunate answer is: *it depends*.
@@ -117,61 +122,234 @@ We use the same terms but mean different wildly things.
 
 The object model puts an asterisk on every property exposed to the application developer.
 
+### Usage of QUIC
+Ironically "Media over QUIC" doesn't really leverage QUIC.
+
+Within the working group, there's been a debate of "implicit" vs "explicit".
+The names are confusing, but basically the question, is does MoqTransport use any signals from QUIC?
+
+- Implicit: Yes, each message has an associated QUIC stream and can leverage any ordering/FIN/RESET/etc.
+- Explicit: No, we can't assume QUIC is used need our own cooresponding message.
+
+The draft has erred on the side of "explicit", which is why we have our own *_DONE, *_ERROR, *_RESET, etc signals.
+But now the library has to implement it's own (undefined) state machine for each announce/subscribe operation.
+An application using a stream/datagram per object has to futher implement reassembly, reordering, gap handling, fin signalling, etc.
+
+I want to use QUIC.
+I don't want to reimplement QUIC.
+
+And if you want to use Media over QUIC over TCP, then use something like the QUIC Streams proposal [draft-kazuho-quic-quic-on-streams].
+
+
 ## Differences
 This is a summary of the high-level differences between the MoqTransport draft ([moqt]) and this draft.
 
+Conceptually, MoqTransfork should be considered as an extension of QUIC.
+It adds properties to enable relay fanout but it does not attempt to replace any QUIC functionality.
+
 ## Object Model
-The MoqTF object model inherits the QUIC object model, rather than fighting against it.
+The MoqTransfork object model inherits the QUIC object model rather than fighting against it.
 
 The same terms are used for consistency: Object, Group, Track.
 The one addition is Broadcast, which was implied in the MoqTransport draft as "namespace".
 
-- **Broadcast**: A collection of tracks, identified by a unique name.
-- **Track**: A sequential collection of groups, identified by a unique name.
-- **Group**: A sequential collection of objects, served via a QUIC stream.
+- **Broadcast**: A collection of tracks from a single producer, identified by a unique name.
+- **Track**: A series of groups, identified by a unique name.
+- **Group**: A series of objects, served via a QUIC stream.
 - **Object**: A sized payload of bytes.
 
 These are not intended to map directly to media concepts.
-An Object might consist of multiple frames (ex. moof) or a parital frame (ex. slice).
-A Group might consist of non-dependent (ex. audio, multiple GoPs) or a layer within a GoP (ex. SVC).
-See the Appendix for an exhaustive list of examples.
+Depending on the application, an Object might consist of multiple frames (ex. moof) or a parital frame (ex. slice).
+Likewise a Group might consist of non-dependent (ex. audio, multiple GoPs) or a layer within a GoP (ex. SVC).
+See the Appendix for an exhaustive list of use-cases and examples.
 
 ## Properties
-The object model leverages QUIC to provide concrete properties.
+The object model leverages QUIC streams to provide concrete properties.
+
+The idea is the application uses the object model based on the desired properties.
+This is in contrast to the MoqTransport draft, which dynamically changes the properties of the object model based on flags.
+
+Here's a summary:
 
 ### Broadcast
 - **Addressable** via a unique string.
-- **Terminal** via STREAM_FIN on an announce stream.
-- **Cancelable** via RESET_STREAM on an announce stream.
+- **Terminal** with an optional error code.
 
 ### Track
 - **Addressable** via a unique string within the broadcast.
-- **Terminal** via STREAM_FIN on a subscribe stream.
-- **Cancelable** via RESET_STREAM on a subscribe stream.
+- **Terminal** with an optional error code.
 - **Prioritized** via subscribe parameter.
 - **Seekable** via subscribe parameters.
 
 ### Group
 - **Addressable** sequence number within a track.
 - **Unordered** within a track.
-- **Terminal** with a clean close.
-- **Tail Dropable** with an error code.
-- **Prioritized** based on the subscription.
-- **Flow Controlled** according to QUIC.
-- **Expires** after an optional duration.
+- **Terminal** with an optional error code.
+- **Prioritized** via subscribe parameter.
+- **Expires** via an optional duration.
+- **Flow Controlled** via QUIC.
 
 ### Object
 - **Addressable** via byte offsets within a group.
+- **Ordered** within a group.
 - **Sized** with a length prefix.
 - **Payload** of opaque bytes.
-- **Ordered** within a group.
 - **Reliable** via QUIC retransmits.
 
+## No Gaps
+QUIC does not allow dropping, or prioritize, or reorder bytes in the middle of a stream.
+This is by design as it simplifies the QUIC API and implementation.
 
-Some notible properties that were removed:
-- **Gaps**: There can be no gaps between groups or objects. Applications can instead signal gaps within the payload (ex. timestamp).
-- **Object IDs**: Objects are now addressed by byte offsets within a group. This makes relays more efficient as they no longer need to parse/buffer the stream after the header. It also allows fetching partial objects, like the remaining half of an I-frame.
-- **Independent Objects**: Groups are delivered via an ordered/reliable QUIC stream, so objects within a group inherit that behavior. If objects should be delivered/prioritized independently, then they need to be in separate groups (ex. audio) or tracks (ex. SVC). Use the object model based on the properties you want, rather than dynamically change the properties of the object model.
+MoqTransfork likewise does not support gaps.
+The group/object sequence numbers are intended to be trans
+
+If an application wants to skip an object, then it can either:
+- encode a zero-length object or
+- increment a timestamp within the payload
+
+## Reliable/Ordered
+Each group is delivered via a QUIC stream, providing ordering and reliablility.
+As mentioned above, QUIC does not support dropping, prioriting, or reordering bytes in the middle of a stream.
+
+If an application wants objects to be delivered/prioritized independently, then they need to be in separate groups (ex. audio) or tracks (ex. SVC).
+See the Appendix for an exhaustive list of examples.
+
+
+
+# Overview
+MoqTransfork is a generic transport protocol that augments QUIC to provide extra functionality required for live media.
+
+In particular:
+- **Fanout**: A single producer can broadcast to multiple consumers.
+- **Live**: All available data is transmitted without delay.
+- **Prioritized**: During congestion, the most important data is transmitted first.
+- **Relays**: All of the above can be accomplished with multiple hops.
+
+
+## Session
+MoqTransfork uses WebTransport: a thin layer on top of QUIC utilizing HTTP/3.
+
+A client initiates a WebTransport session via a URL.
+The client then initiates a MoqTransfork session, performing version/extension negotiation.
+Both endpoints negotiate if they will be a publisher, subscriber, or both.
+
+A future version of MoqTransfork will support QUIC without WebTransport.
+However, until then, only WebTransport is supported to increase interoperability.
+
+## Streams
+MoqTransfork uses multiple QUIC streams to both deliver control messages and data.
+
+## Object Model
+An application builds on top of MoqTransfork by using Broadcasts, Tracks, Groups, and Objects.
+
+### Broadcasts
+A Broadcast is a named collection of tracks from a single producer.
+The name is a unique identifier and relays use it route subscriptions across the network.
+
+A publisher can choose to ANNOUNCE a broadcast, or the application can exchange the name of a broadcast out-of-band.
+A subscriber can then choose to SUBSCRIBE to individual tracks within the broadcast.
+The application determines any relationship between tracks, for example if they are timestamp synchronized.
+
+There is currently no mechanism within MoqTransfork to discover track names within a broadcast.
+The application is responsible for negotiating a scheme or exchanging names out-of-band.
+For example, via a "catalog" track that lists all other tracks and their properties.
+
+
+### Tracks
+A Track is a series of objects, split into independently decodable groups.
+
+A single publisher can serve multiple subscribers, each starting at a group boundary.
+New subscribers will often start at the latest group, but they can also specify a start/end range.
+A publisher may be unaware of all downstream subscribers especially when relays are involved.
+
+
+### Groups
+A Group is a sequence of ordered objects delivered via a QUIC stream.
+
+Groups within a track may be delivered out-of-order and prioritized according to the subscriber's preference.
+This occurs on a per-session basis and enables the receiver to skip over non-critical data during congestion.
+The remainder of a group may be dropped by either endpoint if the delay is significant.
+
+Objects within a group are delivered in-order and reliably.
+This head-of-line blocking is intentional and can be used by the application to simplify a decoder.
+If the objects do not depend on each other, then the application is encouraged to split them into separate groups or even tracks.
+
+### Objects
+An object is a sized payload of bytes.
+
+The contents are opaque to MoqTransfork unless otherwise negotiated.
+Objects can be used to carry media frames, metadata, control messages, or really anything.
+
+
+# Implementation
+
+## Establishment
+
+
+# Control Streams
+Bidirectional streams are used for control messages.
+
+The first varint of each stream indicates the type.
+
+|------|-----------|
+| ID   | Type      |
+|-----:|:----------|
+| 0x0  | SETUP     |
+|------|-----------|
+| 0x1  | ANNOUNCE  |
+|------|-----------|
+| 0x2  | SUBSCRIBE |
+|------|-----------|
+
+## SETUP stream
+Upon establishing the WebTransport session, the client opens a SETUP stream.
+
+The client sends a SETUP_CLIENT message, containing:
+- supported versions
+- the client's role
+- any extensions
+
+The server replies on the same stream with a SETUP_SERVER message, containing:
+- the selected version
+- the server's role
+- any extensions
+
+The session remains active until the SETUP stream is closed by either endpoint via a clean termination or error code.
+
+A future version of this draft may use the SETUP stream for other purposes, for example authentication.
+
+## ANNOUNCE stream
+A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
+
+~~~
+ANNOUNCE Message {
+  Broadcast Name (b),
+}
+~~~
+
+The subscriber MUST reply on the same stream with an ANNOUNCE_OK message, or close the stream with an error.
+
+~~~
+ANNOUNCE_OK Message {
+}
+~~~
+
+The announcement remains active until the ANNOUNCE stream is closed by either endpoint via a clean termination or error code.
+
+## SUBSCRIBE stream
+A subscriber can open multiple SUBSCRIBE streams to request a track.
+
+~~~
+SUBSCRIBE Message {
+  Broadcast Name (b),
+  Track Name (b),
+  Start Group (i),
+  End Group (i),
+}
+~~~
+
+
+# Data Streams
 
 
 {::boilerplate bcp14-tagged}
