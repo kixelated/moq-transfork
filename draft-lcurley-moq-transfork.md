@@ -288,6 +288,11 @@ Objects can be used to carry media frames, metadata, control messages, or really
 
 # Control Streams
 Bidirectional streams are used for control messages.
+ 
+Note that QUIC bidirectional streams have both a send and recv direction that an endpoint can close independently. To simplify things, this document only refers to the send side of the stream as either:
+
+- **closed**: The sender has transmitted a STREAM_FIN and all STREAM data has been acknowledged.
+- **reset**: The sender has transmitted a RESET_STREAM with an error code, OR the receiver has transmitted a STOP_SENDING (which then triggers a RESET_STREAM).
 
 The first varint of each stream indicates the type.
 Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION. 
@@ -319,33 +324,36 @@ The server replies on the same stream with a SETUP_SERVER message, containing:
 - the server's role
 - any extensions
 
-The session remains active until the SETUP stream is closed by either endpoint via a clean termination or error code.
+The session remains active until the SETUP stream is closed or reset by either endpoint.
 
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
 ## ANNOUNCE Stream
-A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
+A publisher can open multiple ANNOUNCE streams to advertise a broadcast. 
 
 ~~~
 ANNOUNCE Message {
+  Type = 0x1,
   Broadcast Name (b),
 }
 ~~~
 
-The subscriber MUST reply on the same stream with an OK message, or close the stream with an error.
+The announcement is active until the stream is closed or reset by either endpoint. Notably, a subscriber can close the send side of the stream to indicate that no error occurred but its not interested.
+
+The subscriber MUST reply on the same stream with an OK message. 
 
 ~~~
 OK Message {
+  Cool = 0x1
 }
 ~~~
-
-The announcement remains active until the ANNOUNCE stream is closed by either endpoint via a clean termination or error code.
 
 ## SUBSCRIBE Stream
 A subscriber can open a SUBSCRIBE stream to request a track.
 
 ~~~
 SUBSCRIBE Message {
+  Type = 0x2,
   Subscribe ID (i),
   Broadcast Name (b),
   Track Name (b),
@@ -363,6 +371,25 @@ SUBSCRIBE Message {
 **Min Group**: The minimum group sequence number plus 1. A value of 0 indicates the latest group as determined by the publisher.
 
 **Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
+
+The subscription remains active until closed or reset by either endpoint. The subscriber SHOULD close after all groups within the bounds have been fully received or dropped. The publisher MAY close after all groups have been acknowledged or dropped if supported by the QUIC library.
+
+The publisher replies with a INFO message containing the minimum group ID
+
+The subscriber may UPDATE the subscription by encoding subsequent messages on the stream:
+
+~~~
+UPDATE Message {
+  Priority (i)
+  Order (i)
+  Min Group (i)
+  Max Group (i)
+}
+~~~
+
+**Min Group**: The new minimum group sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and UPDATE messages.
+
+**Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or UPDATE messages.
 
 
 ## FETCH Stream
@@ -383,8 +410,14 @@ FETCH Message {
 
 **Offset**: The requested offset in bytes *after* the GROUP header, but including and OBJECT headers.
 
-The publisher replies with a GROUP header on the same stream.
-This is notably different from SUBSCRIBE.
+The publisher replies with the contents on the same stream. See the GROUP section on how to parse the contents which includes OBJECT delimiters.
+
+The publisher closes the stream once the entire GROUP has been transferred, or resets with an error code.
+
+The subscriber may close or reset the 
+
+
+DISCUSS: This is notably different from SUBSCRIBE. Is there any merit in creating a unidirectional stream instead?
 
 ## INFO Stream
 
