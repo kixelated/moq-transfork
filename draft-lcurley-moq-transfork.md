@@ -52,152 +52,82 @@ TODO Abstract
 --- middle
 
 # Fork
+
+ 
 As one of the authors of the MoqTransport ([moqt]) draft, it pains me to fork the draft.
 
 I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-However, it's clear that theres a problem within MoqTransport.
-QUIC is still a relatively new network protocol and there are very different ideas on how to utilize it.
-As a result, the draft is intentionally obtuse, has divergent modes/flags, and has few concrete properties that can be relied on.
-In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
-
-On a personal level, I've spent far too much of my time on MoQ and I don't want to lose it all.
-This fork is meant to be constructive, unlike the frequent debates about the (lack of) properties of the object model.
-My goal is to lead by example and focus on the implementation.
-
-This draft (moq-transfork-00) documents the differences from moq-transport-03.
-Future versions of moq-transfork will be stand-alone.
-
-I've summarized some of the high level changes:
-
-## QUIC Mapping
-MoqTransfork is an extension of QUIC, augmented to provide extra functionality desirable for live media.
-In particular, the ability to subscribe for new content and 
-
-at stream boundaries,
-
-This is
-
-
-with streams and datagrams at the core.
-Each stream and datagram are augmented with additional behavior 
-
-It might seem subtle, but the 
-
-This includes the ability to subscribe to
-
-## Motivation
-The Media over QUIC working group contains some amazing ideals and ideas.
-There's been a lot of organic growth and we will eventually produce something special.
-I fully support the goals of the working group and the IETF process.
-
-However, we're in the precarious position of developing a protocol via committee using a technology still in its infacy.
-With such theoritical discussions, it's easy to lose sight of the practical implications of our decisions.
-And personally, it's become very draining to make forward progress.
+However, it's clear to me that there's fundamental issues with the MoqTransport draft.
+We don't have a consensus on how to send media over QUIC (ironic) and the compromise is to make the protocol intentionally obtuse.
+It has been quite depressing both implementing and using a generic MoqTransport library and things are only getting worse.
 In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
 
 This fork is meant to be constructive.
-Sometimes the best way to argue for a solution is to present an alternative.
-My hope is that some of these ideas will be adopted by the working group, even if others will be discarded.
-And I'm just tired of posting hundreds of issues/messages/PRs and getting nowhere.
-
-## Critique
-A quick critique of the MoqTransport draft as why I felt the need to fork it
-
-## Object Model
-The MoqTransport draft introduces the concept of Objects, Groups, and Tracks.
-While these are generic terms and there's no explicit media mapping on purpose, the implicit mapping is:
-
-- **Object** = Audio/Video Frame
-- **Group** = Group of Pictures (video only)
-- **Track** = Audio/Video Track
-
-But how do you actually transmit a media frame over QUIC?
-The unfortunate answer is: *it depends*.
-
-There's (currently) four different "delivery preferences" that an application can enable per track:
-- QUIC stream per Track
-- QUIC stream per Group
-- QUIC stream per Object
-- QUIC datagram per Object
-
-The last two are particularly problematic, as they turn 
-
-Furthermore, the introduction of gaps within groups 
-
-The reason is because QUIC does not allow dropping or reordering bytes in the middle of a stream *by design*.
-In order to drop an object in the middle of a group, we now need to create own fragmentation mechanisms.
-And of course now we need our own way of signalling FINs, RSTs, gaps, reordering, etc.
-
-The object model creates an alarming depature from QUIC and a burden to implement.
-
-### Properties
-As mentioned above, the object model intends to map to media concepts, while being generic of course.
-However, the actual properties of Objects, Groups, and Tracks are wildly variable.
-
-For example, let's consider the properties of a Group:
-
-- **Unique ID**: Yes
-- **Sequential ID**: Depends on the application.
-- **Ordered between Groups?**: Yes with a stream per track, no otherwise.
-- **Ordered within a Group?**: Yes with a stream per track/group, no for a stream/datagram per object.
-- **Gaps between Groups?**: Depends on the application.
-- **Gaps within a Group?**: Depends on the application.
-- **Drops between Groups?**: No with a stream per track, yes otherwise.
-- **Drops within a Group?**: No with a stream per track, tail only with a stream per group, yes otherwise.
-
-While these seem like concrete albeit random properties, this is just my interpretation of the draft.
-The reality is that these properties are undefined and the even authors of the draft have different interpretations.
-We use the same terms but mean different wildly things.
-
-The object model puts an asterisk on every property exposed to the application developer.
-
-### Usage of QUIC
-Ironically "Media over QUIC" doesn't really leverage QUIC.
-
-Within the working group, there's been a debate of "implicit" vs "explicit".
-The names are confusing, but basically the question, is does MoqTransport use any signals from QUIC?
-
-- Implicit: Yes, each message has an associated QUIC stream and can leverage any ordering/FIN/RESET/etc.
-- Explicit: No, we can't assume QUIC is used need our own cooresponding message.
-
-The draft has erred on the side of "explicit", which is why we have our own *_DONE, *_ERROR, *_RESET, etc signals.
-But now the library has to implement it's own (undefined) state machine for each announce/subscribe operation.
-An application using a stream/datagram per object has to futher implement reassembly, reordering, gap handling, fin signalling, etc.
-
-I want to use QUIC.
-I don't want to reimplement QUIC.
-
-And if you want to use Media over QUIC over TCP, then use something like the QUIC Streams proposal [draft-kazuho-quic-quic-on-streams].
+I've spent far too much of my professional and personal time working on MoQ and want to see it through.
+But there's only so much that can be repeatedly debated in Github issues.
+I feel it's time to focus on the implementation and lead by example.
 
 
-## Differences
+# Differences
 This is a summary of the high-level differences between the MoqTransport draft ([moqt]) and this draft.
 
 Conceptually, MoqTransfork should be considered as an extension of QUIC.
-It adds properties to enable relay fanout but it does not attempt to replace any QUIC functionality.
+It adds properties to suppoet live media but it does not attempt to replace any QUIC functionality.
+
+This draft (moq-transfork-00) is based on moq-transport-03.
+Unless otherwise indicated, the procedures and encoding are the same.
+Future versions of moq-transfork will be independent.
 
 ## Object Model
-The MoqTransfork object model inherits the QUIC object model rather than fighting against it.
+The MoqTransfork object model consists of:
+- Broadcast
+- Track 
+- Group
+- Object
+- Datagram
 
-The same terms are used for consistency: Object, Group, Track.
-The one addition is Broadcast, which was implied in the MoqTransport draft as "namespace".
+While the names are similar, the object model properties are static unlike MoqTransport.
+There are no "it depends" based on flags or the application.
 
-- **Broadcast**: A collection of tracks from a single producer, identified by a unique name.
-- **Track**: A series of groups, identified by a unique name.
-- **Group**: A series of objects, served via a QUIC stream.
-- **Object**: A sized payload of bytes.
+### Broadcast 
+A collection of tracks from a single producer.
 
-These are not intended to map directly to media concepts.
-Depending on the application, an Object might consist of multiple frames (ex. moof) or a parital frame (ex. slice).
-Likewise a Group might consist of non-dependent (ex. audio, multiple GoPs) or a layer within a GoP (ex. SVC).
+Each broadcast is identified by a unique name within the session.
+A publisher may optionally ANNOUNCE a broadcast or the subscriber can determine the name out-of-band.
+
+### Track
+A series of groups within a broadcast,
+
+Each subscription is scoped to a single track.
+A subscription starts at a group boundary and continues until either the publisher or subscriber terminates it.
+The subscriber chooses the priority of each track, dictating which track arrives first during congestion.
+
+Each track has a unique name within the broadcast.
+There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
+For example, a `catalog` track that lists all other tracks.
+
+### Group
+A series of objects within a track, served over a QUIC stream.
+
+Just like QUIC streams, a group is delivered reliably in order, and with no gaps.
+Both the publisher and subscriber can 
+
+### Object
+A sized payload of bytes.
+
+### Datagram
+
+
+The terminology is borrowed from 
 See the Appendix for an exhaustive list of use-cases and examples.
 
 ## Properties
 The object model leverages QUIC streams to provide concrete properties.
 
+The application is responsible for mapping media to the object model based on the properties it provides
 The idea is the application uses the object model based on the desired properties.
 This is in contrast to the MoqTransport draft, which dynamically changes the properties of the object model based on flags.
 
