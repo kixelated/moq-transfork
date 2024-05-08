@@ -61,27 +61,30 @@ The layering is phenomenal and addresses many of the problems with current live 
 I fully support the goals of the working group and the IETF process.
 
 However, it's clear to me that there's fundamental issues with the MoqTransport draft.
-We don't have a consensus on how to send media over QUIC (ironic) and the compromise is to make the protocol intentionally obtuse.
-It has been quite depressing both implementing and using a generic MoqTransport library and things are only getting worse.
-In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
+Primerally, we don't have a consensus on *how* to send media over QUIC which is awfully ironic.
+The well-intentioned compromise is support multiple modes but this has made the protocol obtuse and difficult.
+It has been miserable implementing and using a generic MoqTransport library and things are only getting worse as new use-cases are discovered.
 
 This fork is meant to be constructive.
 I've spent far too much of my professional and personal time working on MoQ and want to see it through.
 But there's only so much that can be repeatedly debated in Github issues.
-I feel it's time to focus on the implementation and lead by example.
+
+In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
+Perhaps it's not the best idea to design an experimental protocol by committee.
+I want to focus on the implementation and lead by example.
 
 
 # Differences
 This is a summary of the high-level differences between the MoqTransport draft ([moqt]) and this draft.
 
 Conceptually, MoqTransfork should be considered as an extension of QUIC.
-It adds properties to suppoet live media but it does not attempt to replace any QUIC functionality.
+It adds properties to support live media but it does not attempt to replace any QUIC functionality.
 
 This draft (moq-transfork-00) is based on moq-transport-03.
 Unless otherwise indicated, the procedures and encoding are the same.
 Future versions of moq-transfork will be independent.
 
-## Object Model
+# Object Model
 The MoqTransfork object model consists of:
 - Broadcast
 - Track 
@@ -89,16 +92,18 @@ The MoqTransfork object model consists of:
 - Object
 - Datagram
 
-While the names are similar, the object model properties are static unlike MoqTransport.
-There are no "it depends" based on flags or the application.
+The terminology is borrowed from MoqTransport but critically, the properties are fixed and do not change based on flags or the application.
 
-### Broadcast 
+## Broadcast 
 A collection of tracks from a single producer.
 
 Each broadcast is identified by a unique name within the session.
 A publisher may optionally ANNOUNCE a broadcast or the subscriber can determine the name out-of-band.
 
-### Track
+The MoqTransport draft refers to this as "track namespace".
+I couldn't help but bikeshed.
+
+## Track
 A series of groups within a broadcast,
 
 Each subscription is scoped to a single track.
@@ -109,20 +114,44 @@ Each track has a unique name within the broadcast.
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
 For example, a `catalog` track that lists all other tracks.
 
-### Group
-A series of objects within a track, served over a QUIC stream.
+## Group
+A series of objects within a track, served via a QUIC stream.
 
-Just like QUIC streams, a group is delivered reliably in order, and with no gaps.
-Both the publisher and subscriber can 
+Just like QUIC streams, a group is delivered reliably in order with no gaps.
+There is a header that dicates stream-level properties such as TTL.
 
-### Object
-A sized payload of bytes.
+Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's RESET_STREAM or STOP_SENDING respectively.
+When a group is cancelled, the publisher transmits a GROUP_DROPPED message to inform the subscriber.
+A subscriber may issue a FETCH to resume at a given byte offset.
 
-### Datagram
+
+## Object
+A sized payload of bytes within a group.
+
+This provides framing, that is useful in some applications.
+
+## Datagram
+A sized payload of bytes within a track, served via a QUIC datagram.
+
+Datagrams members of a track that are distinct from Groups/Objects.
+A publisher transmits them at most once based on the provided priority/TTL.
+A datagram does not contain a sequence number and the application is responsible for any reordering.
+
+# Messages 
+## SUBSCRIBE 
+~~~
+SUBSCRIBE Message {
+  Subscribe ID (i),
+  Broadcast Name (b),
+  Track Name (b),
+  Priority (i),
+  Order (i),
+  Min Group (i),
+  Max Group (i),
+}
+~~~
 
 
-The terminology is borrowed from 
-See the Appendix for an exhaustive list of use-cases and examples.
 
 ## Properties
 The object model leverages QUIC streams to provide concrete properties.
@@ -328,20 +357,30 @@ SUBSCRIBE Message {
 
 **Priority**: The preferred priority of the groups relative to all other FETCH and SUBSCRIBE within the session. The publisher should transmit *lower* values first during congestion.
 
-**Order**: The preferred order of the groups within the subscription. The publisher should transmit groups based on their sequence number in any (0), ascending (1), or descending (2) order.
+**Order**: The subscriber's preferred order of the groups within the subscription. The publisher should transmit groups based on their sequence number in any (0), ascending (1), or descending (2) order.
 
 **Min Group**: The minimum group sequence number plus 1. A value of 0 indicates the latest group as determined by the publisher.
 
 **Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
-The subscription remains active until closed or reset by either endpoint. The subscriber SHOULD close after all groups within the bounds have been fully received or dropped. The publisher MAY close after all groups have been acknowledged or dropped if supported by the QUIC library.
-
-The publisher replies with a INFO message containing the minimum group ID
-
-The subscriber may UPDATE the subscription by encoding subsequent messages on the stream:
-
+## SUBSCRIBE_OK
 ~~~
-UPDATE Message {
+SUBSCRIBE_OK Message {
+  Order (i)
+  Min Group (i)
+  Max Group (i)
+}
+~~~
+
+**Order**: The publisher's preferred order of the groups within the subscription. 
+This does not need to match the subscriber's preference and may be purely informational (for relays).
+The publisher should transmit groups based on their sequence number in none (0), ascending (1), or descending (2) order.
+
+**Min Group**: 
+
+## SUBSCRIBE_UPDATE
+~~~
+SUBSCRIBE_UPDATE Message {
   Priority (i)
   Order (i)
   Min Group (i)
@@ -349,13 +388,13 @@ UPDATE Message {
 }
 ~~~
 
-**Min Group**: The new minimum group sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and UPDATE messages.
+**Min Group**: The new minimum group sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
 
-**Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or UPDATE messages.
+**Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-## FETCH Stream
-A subscriber can open a FETCH stream to receive a single GROUP at a specified offset.
+## FETCH
+A subscriber can open a bidirectional FETCH stream to receive a single GROUP at a specified offset.
 This is primarily used to recover from an abrupt stream termination.
 
 ~~~
@@ -370,16 +409,12 @@ FETCH Message {
 
 **Priority**: The preferred priority of the group relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
 
-**Offset**: The requested offset in bytes *after* the GROUP header, but including and OBJECT headers.
+**Offset**: The requested offset in bytes *after* the GROUP header.
 
-The publisher replies with the contents on the same stream. See the GROUP section on how to parse the contents which includes OBJECT delimiters.
+The publisher replies on the stream with the contents.
+The stream may be reset with an error code by either endpoint.
 
-The publisher closes the stream once the entire GROUP has been transferred, or resets with an error code.
-
-The subscriber may close or reset the 
-
-
-DISCUSS: This is notably different from SUBSCRIBE. Is there any merit in creating a unidirectional stream instead?
+DISCUSS: Is there any merit in creating a unidirectional stream instead?
 
 ## INFO Stream
 
