@@ -84,6 +84,12 @@ This draft (moq-transfork-00) is based on moq-transport-03.
 Unless otherwise indicated, the procedures and encoding are the same.
 Future versions of moq-transfork will be independent.
 
+
+## No Datagrams
+The usage of datagrams in MoqTransport creates strange behavior when dealing with multiple subscribers at different latency targets.
+
+For example, if audio is transmitted via datagrams, thrn
+
 # Object Model
 The MoqTransfork object model consists of:
 - Broadcast
@@ -92,7 +98,7 @@ The MoqTransfork object model consists of:
 - Object
 - Datagram
 
-The terminology is borrowed from MoqTransport but critically, the properties are fixed and do not change based on flags or the application.
+The terminology is borrowed from MoqTransport but critically, the properties are fixed and do not change based on flags.
 
 ## Broadcast 
 A collection of tracks from a single producer.
@@ -101,7 +107,7 @@ Each broadcast is identified by a unique name within the session.
 A publisher may optionally ANNOUNCE a broadcast or the subscriber can determine the name out-of-band.
 
 The MoqTransport draft refers to this as "track namespace".
-I couldn't help but bikeshed.
+I couldn't help but bikeshed since I'd eventually like broadcasts to have more properties than just a name.
 
 ## Track
 A series of groups within a broadcast,
@@ -128,17 +134,8 @@ A subscriber may issue a FETCH to resume at a given byte offset.
 ## Object
 A sized payload of bytes within a group.
 
-This provides framing, that is useful in some applications.
+This currently only provides framing, which is useful in some applications.
 
-## Datagram
-A sized payload of bytes within a track, served via a QUIC datagram.
-
-Datagrams members of a track that are distinct from Groups/Objects.
-A publisher transmits them at most once based on the provided priority/TTL.
-A datagram does not contain a sequence number and the application is responsible for any reordering.
-
-# Control Streams
-MoqTransfork uses bidirectional streams to coordinate between peers.
 
 # Control Streams
 Bidirectional streams are used for control messages.
@@ -147,7 +144,8 @@ Note that QUIC bidirectional streams have both a send and recv direction can be 
 This is used to indicate completion or errors respectively.
 
 The first varint of each stream indicates the type.
-Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION. 
+Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
+A stream type MUST NOT contain messages defined for other stream types unless otherwise specified (ex. INFO).
 
 |------|-----------|-------
 | ID   | Type      | Role |
@@ -162,6 +160,7 @@ Streams may only be created by the indicated role, otherwise the session MUST be
 |------|-----------|--|
 | 0x4  | INFO      | Subscriber |
 |------|-----------|--|
+
 
 ## SETUP Stream
 Upon establishing the WebTransport session, the client opens a SETUP stream.
@@ -178,6 +177,7 @@ The server replies on the same stream with a SETUP_SERVER message, containing:
 
 The session remains active until the SETUP stream is closed or reset by either endpoint.
 
+The stream MUST NOT contain any other messages.
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
 ## ANNOUNCE Stream
@@ -185,12 +185,12 @@ A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
 
 ~~~
 ANNOUNCE Message {
-  Type = 0x1,
   Broadcast Name (b),
 }
 ~~~
 
-The announcement is active until the stream is closed or reset by either endpoint. Notably, a subscriber can close the send side of the stream to indicate that no error occurred but its not interested.
+The announcement is active until the stream is closed or reset by either endpoint.
+Notably, a subscriber can close the send side of the stream to indicate that no error occurred, but it's not interested.
 
 The subscriber MUST reply with an ANNOUNCE_OK message.
 
@@ -205,13 +205,13 @@ A subscriber can open a SUBSCRIBE stream to request a named track within a broad
 
 The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
 
-The publisher MUST reply with a SUBSCRIBE_OK or reset the stream to reject the subscription.
+The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
 
 The publisher then transmits any matching group within the track over a separate GROUP stream.
 If a GROUP is unavailable or reset, the publisher MUST reply with a  SUBSCRIBE_DROP message. 
 
 The subscription is active until either endpoint closes or resets their side of the stream.
-Before closing a subscription, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been received.
+To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been delivered before closing the stream.
 
 ### SUBSCRIBE 
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -236,12 +236,13 @@ SUBSCRIBE Message {
 
 **Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
+
 ### SUBSCRIBE_OK
 The publisher acknowledges the SUBSCRIBE with an INFO message.
-This is primarily informational and potentially avoids a separate INFO_REQUEST.
-See the INFO stream section.
+This is informational, avoiding the nerd for a separate INFO_REQUEST.
+See the INFO section for details.
 
-The publisher SHOULD still use the subscriber's preferred order instead of the indicated default order.
+The publisher SHOULD use the subscriber's preferred order instead of the indicated default order.
 The indicated latest group MAY be outside of the Min/Max bounds.
 
 
@@ -261,6 +262,7 @@ SUBSCRIBE_UPDATE Message {
 
 **Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
+
 ### SUBSCRIBE_DROP
 The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve a group within the requested range.
 
@@ -275,6 +277,7 @@ SUBSCRIBE_DROP {
 **Start Group**: The first group within the dropped range.
 **Count**: The number of additional groups after the first. The End Group can be computed as Start Group + Count.
 **Error Code**: An error code indicated by the application.
+
 
 ## FETCH
 A subscriber can open a bidirectional FETCH stream to receive a single GROUP at a specified offset.
@@ -345,6 +348,8 @@ The publisher MUST send a SUBSCRIBE_DROP if the stream is reset using the corres
 This includes resets triggered by the subscriber via STOP_SENDING.
 
 ### GROUP Message
+The GROUP message contains information about the group, as well as a reference to the subscription being served.
+
 ~~~
 GROUP Message {
   Subscribe ID (i)
@@ -353,12 +358,24 @@ GROUP Message {
 }
 ~~~
 
+**TTL**: The group may only be cached for this many milliseconds.
+A value of 0 indicates until the next group.
+
+A publisher SHOULD subtract the amount of time the group has been cached from the TTL.
+A subscriber MAY try to FETCH/SUBSCRIBE the Group again after it can no longer be cached, potentially refreshing the TTL or learning the error code.
+
 ### OBJECT Message
+The OBJECT message consists of a length followed by that many bytes.
+
 ~~~
 OBJECT Message {
   Payload (b)
 }
 ~~~
+
+**Payload**: An application specific payload.
+A MoqTransfork library MUST NOT inspect or modify the contents unless otherwise negotiated.
+
 
 {::boilerplate bcp14-tagged}
 
