@@ -52,43 +52,78 @@ TODO Abstract
 --- middle
 
 # Fork
-
- 
-As one of the authors of the MoqTransport ([moqt]) draft, it pains me to fork the draft.
-
-I absolutely believe in the motivation and potential of Media over QUIC.
-The layering is phenomenal and addresses many of the problems with current live media protocols.
-I fully support the goals of the working group and the IETF process.
-
-However, it's clear to me that there's fundamental issues with the MoqTransport draft.
-Primerally, we don't have a consensus on *how* to send media over QUIC which is awfully ironic.
-The well-intentioned compromise is support multiple modes but this has made the protocol obtuse and difficult.
-It has been miserable implementing and using a generic MoqTransport library and things are only getting worse as new use-cases are discovered.
-
-This fork is meant to be constructive.
-I've spent far too much of my professional and personal time working on MoQ and want to see it through.
-But there's only so much that can be repeatedly debated in Github issues.
-
-In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
-Perhaps it's not the best idea to design an experimental protocol by committee.
-I want to focus on the implementation and lead by example.
-
-
-# Differences
-This is a summary of the high-level differences between the MoqTransport draft ([moqt]) and this draft.
-
-Conceptually, MoqTransfork should be considered as an extension of QUIC.
-It adds properties to support live media but it does not attempt to replace any QUIC functionality.
-
 This draft (moq-transfork-00) is based on moq-transport-03.
-Unless otherwise indicated, the procedures and encoding are the same.
-Future versions of moq-transfork will be independent.
+
+
+## QUIC Mapping
+The most important part of any Media over QUIC protocol is right in the name.
+How do you transfer Media over QUIC?
+
+QUIC streams provide concrete properties, most importantly that they are ordered/reliable within a stream and unordered/cancellable between streams.
+MoqTransfork extends these properties, adding the ability to filter/prioritize streams (called "groups") via subscriptions.
+An application can build the actual media mapping on top of these well defined properties.
+See the appendix for examples.
+
+This is not true for MoqTransport, as the properties of the object model are dynamic based on the track's "delivery preference":
+
+- QUIC Stream per Track
+- QUIC Stream per Group
+- QUIC Stream per Object
+- QUIC Datagram per Object
+
+What's worse is that the application can decide to introduce gaps or deliver in any order without negotiation.
+This all causes a migraine for both the application and implementation as the properties of the transport change on a whim.
+The object model only serves to give the same name to wildly different objects.
+
+This is the one change that NEEDs to be in MoqTransport.
+Unfortunately, thete has been an ongoing debate for years now and there's nothing left to do but fork.
+The rest of the differences are minor and personal preference.
+
+## Byte Offsets
+When a connection or subscription is severed, it's often desirable to continue right where it left off.
+
+MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
+This isn't a great solution, as objects can be large and delivered out of order, causing duplication when trying to fill gaps.
+It can also cause a fragmented cache as a relay needs to parse/split an incoming stream at object boundaries.
+
+MoqTransfork instead utilizes FETCH for each incomplete GROUP at a byte offset.
+This ensures that only the missing tail of a reset GROUP stream is delivered.
+It also simplies relays, as they no longer keep track of object offsets, and it allows an advanced relay to forward STREAM frames out of order.
+
+## Control Streams
+MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
+There's also just a lot of messages to transition state machines, such as UNSUBSCRIBE, SUBSCRIBE_ERROR, and SUBSCRIBE_DONE.
+
+MoqTransfork continues the trend of leveraging QUIC with a separate control stream per transaction.
+The stream state machine is used instead of reinventing the wheel.
+The afformentioned messages have been replaced with:
+
+- UNSUBSCRIBE: subscriber STREAM_FIN
+- SUBSCRIBE_ERROR: publisher RESET_STREAM
+- SUBSCRIBE_DONE: publisher STREAM_FIN
+
+Additionally, flow control will limit the maximum number of bidirectional streams per direction, removing the need for something like MAX_SUBSCRIBES.
+
+I concede that we may need more than an error code in the future.
+But until then this is super cute and simplifies the implementation.
 
 
 ## No Datagrams
 The usage of datagrams in MoqTransport creates strange behavior when dealing with multiple subscribers at different latency targets.
 
-For example, if audio is transmitted via datagrams, thrn
+For example, consider when audio is transmitted via datagrams.
+This can make sense when the desired latency is lower than the RTT, but for any other latency targets, the one-and-done nature of datagrams results in higher loss and a worse user experience.
+Datagrams cater to real-time viewers in exchange for marginally lower overhead.
+
+The MoqTransfork alternative is to `SUBSCRIBE order=descending`, requesting that any newer data is delivered first.
+In the above example, the latest audio frame is always transmitted first, with possible (temporary) gaps during congestion.
+A subscriber can optionally skip over these gaps with `SUBSCRIBE_UPDATE start=latest`.
+
+A future version of this draft may support datagrams but as a separate entity from groups/objects given the separate properties.
+
+
+## Only WebTransport 
+A future version of the draft will 
 
 # Object Model
 The MoqTransfork object model consists of:
