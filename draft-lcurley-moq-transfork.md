@@ -52,34 +52,94 @@ TODO Abstract
 --- middle
 
 # Fork
-This draft (moq-transfork-00) is based on moq-transport-03.
+This draft (moq-transfork-00) is a fork of moq-transport-03.
+Much of the concepts, terminology, and motivation are the same, so when sparse on details please consult that draft for now.
+Future versions of moq-transfork will be stand-alone.
+
+## Motivation
+As one of the authors of the MoqTransport ([moqt]) draft, it pains me to fork the draft.
+
+I absolutely believe in the motivation and potential of Media over QUIC.
+The layering is phenomenal and addresses many of the problems with current live media protocols.
+I fully support the goals of the working group and the IETF process.
+
+However, it's clear to me that there's a major problem.
+QUIC is a relatively new network protocol, with many different opinions on how to best utilize it but very few practical implementations.
+And yet we're trying to "standardize" a protocol, attempting to find middle ground where no concrete ground exists.
+In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
+
+The MoqTransport draft today is intentionally vague, filled with divergent modes/flags, and has few concrete properties that can be relied on.
+I can't in good faith recommend it, let alone implement it, until some of the core issues are addressed.
+
+This fork is meant to be a constructive alternative, focusing on the implementation instead of a never ending debate on Github issues.
+My hope is that some of these ideas are adopted by the working group and this fork no longer needs to exist.
+In particular, the object model absolutely needs concrete properties achieved via mapping to QUIC.
+But unfortunately, that's been an ongoing debate for years now and there's nothing left to do but fork.
 
 
-## QUIC Mapping
+## Differences
+Conceptually, MoqTransfork aims to be an extension of QUIC.
+The QUIC API and properties are leveraged whenever possible and only extended when necessary.
+
+This is a summary of the high-level differences between the MoqTransport draft ([moqt]) and this draft.
+Some of these are just personal preference and are not critical, but all are based on years of implementation experience.
+
+### QUIC Mapping
 The most important part of any Media over QUIC protocol is right in the name.
 How do you transfer Media over QUIC?
 
-QUIC streams provide concrete properties, most importantly that they are ordered/reliable within a stream and unordered/cancellable between streams.
-MoqTransfork extends these properties, adding the ability to filter/prioritize streams (called "groups") via subscriptions.
-An application can build the actual media mapping on top of these well defined properties.
-See the appendix for examples.
+MoqTransport bases the object model on media concepts.
+While it is not explicitly stated, the idea is that:
 
-This is not true for MoqTransport, as the properties of the object model are dynamic based on the track's "delivery preference":
+- **Object** = Audio/Video Frame
+- **Group** = Group of Pictures
+- **Track** = Audio/Video Track
+- **Track Namespace** = Broadcast
+
+But how should you transmit a media frame over QUIC?
+The unfortunate answer is: *it depends*.
+That's lead to a variety of "delivery preferences" or modes:
 
 - QUIC Stream per Track
 - QUIC Stream per Group
 - QUIC Stream per Object
 - QUIC Datagram per Object
 
-What's worse is that the application can decide to introduce gaps or deliver in any order without negotiation.
-This all causes a migraine for both the application and implementation as the properties of the transport change on a whim.
-The object model only serves to give the same name to wildly different objects.
+Each of these modes has wildly different properties and behavior, straining the API and the implementation.
+What's worse is that the application can now decide to introduce gaps or deliver objects in any order, removing what few remaining properties existed.
+An "object" is an "object" in name only.
 
-This is the one change that NEEDs to be in MoqTransport.
-Unfortunately, thete has been an ongoing debate for years now and there's nothing left to do but fork.
-The rest of the differences are minor and personal preference.
+MoqTransfork takes a different approach.
 
-## Byte Offsets
+QUIC streams provide concrete properties, most importantly that they are ordered/reliable within a stream and unordered/cancellable between streams.
+These is the primarily building block of any protocol over QUIC.
+MoqTransfork extends these properties, adding the ability to filter/prioritize streams (called "groups") via subscriptions.
+
+An application builds the actual media mapping on top of these well defined properties.
+There is no expectation that a "group" is a GoP or that an "object" is a frame.
+The application chooses properties, such as subscription and drop boundaries, by splitting a live stream into tracks/groups/objects.
+See the appendix for examples.
+
+### Subscriber Priorities
+As the original proponent of producer choosen priorities (send order), I'm ashamed to admit that I was wrong.
+
+The MoqTransport draft contains a `priority` field for each `OBJECT`.
+The idea is that a producer encodes the priority, like `newer > older` and `audio > video`, such that any relays will obey the same scheme.
+
+Unfortunately, reality is more nuanced.
+This scheme is unable to handle many common use-cases based on the viewer, including:
+- different producers: when subscribed to multiple broadcasts
+- different orders: VOD vs real-time
+- different preferences: muted, language, quality, etc
+
+MoqTransfork instead delegates priority to the subscriber.
+This is done via a `priority` (between tracks) and `order` (within a track) field within `SUBSCRIBE`.
+The publisher indicates its preference via `INFO` but the subscriber has the final say.
+
+When deduplicating subscriptions, a relay can resolve conflicts by using the producer's preference.
+That way the viewer's preference is always used for the last hop, but upstream hops might instead use the producer's preference when serving multiple viewers.
+
+### Byte Offsets
 When a connection or subscription is severed, it's often desirable to continue right where it left off.
 
 MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
@@ -90,7 +150,7 @@ MoqTransfork instead utilizes FETCH for each incomplete GROUP at a byte offset.
 This ensures that only the missing tail of a reset GROUP stream is delivered.
 It also simplies relays, as they no longer keep track of object offsets, and it allows an advanced relay to forward STREAM frames out of order.
 
-## Control Streams
+### Control Streams
 MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
 There's also just a lot of messages to transition state machines, such as UNSUBSCRIBE, SUBSCRIBE_ERROR, and SUBSCRIBE_DONE.
 
@@ -107,8 +167,7 @@ Additionally, flow control will limit the maximum number of bidirectional stream
 I concede that we may need more than an error code in the future.
 But until then this is super cute and simplifies the implementation.
 
-
-## No Datagrams
+### No Datagrams
 The usage of datagrams in MoqTransport creates strange behavior when dealing with multiple subscribers at different latency targets.
 
 For example, consider when audio is transmitted via datagrams.
@@ -122,20 +181,22 @@ A subscriber can optionally skip over these gaps with `SUBSCRIBE_UPDATE start=la
 A future version of this draft may support datagrams but as a separate entity from groups/objects given the separate properties.
 
 
-## Only WebTransport 
-A future version of the draft will 
+### Only WebTransport
+A future version of the draft will
 
-# Object Model
+# Concepts
+
+## Object Model
 The MoqTransfork object model consists of:
 - Broadcast
-- Track 
+- Track
 - Group
 - Object
 - Datagram
 
 The terminology is borrowed from MoqTransport but critically, the properties are fixed and do not change based on flags.
 
-## Broadcast 
+### Broadcast
 A collection of tracks from a single producer.
 
 Each broadcast is identified by a unique name within the session.
@@ -144,7 +205,7 @@ A publisher may optionally ANNOUNCE a broadcast or the subscriber can determine 
 The MoqTransport draft refers to this as "track namespace".
 I couldn't help but bikeshed since I'd eventually like broadcasts to have more properties than just a name.
 
-## Track
+### Track
 A series of groups within a broadcast,
 
 Each subscription is scoped to a single track.
@@ -155,7 +216,7 @@ Each track has a unique name within the broadcast.
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
 For example, a `catalog` track that lists all other tracks.
 
-## Group
+### Group
 A series of objects within a track, served via a QUIC stream.
 
 Just like QUIC streams, a group is delivered reliably in order with no gaps.
@@ -166,15 +227,16 @@ When a group is cancelled, the publisher transmits a GROUP_DROPPED message to in
 A subscriber may issue a FETCH to resume at a given byte offset.
 
 
-## Object
+### Object
 A sized payload of bytes within a group.
 
 This currently only provides framing, which is useful in some applications.
 
 
-# Control Streams
+# Encoding
+## Control Streams
 Bidirectional streams are used for control messages.
- 
+
 Note that QUIC bidirectional streams have both a send and recv direction can be closed or reset (with an error code) independently.
 This is used to indicate completion or errors respectively.
 
@@ -197,7 +259,7 @@ A stream type MUST NOT contain messages defined for other stream types unless ot
 |------|-----------|--|
 
 
-## SETUP Stream
+### SETUP Stream
 Upon establishing the WebTransport session, the client opens a SETUP stream.
 
 The client sends a SETUP_CLIENT message, containing:
@@ -215,8 +277,8 @@ The session remains active until the SETUP stream is closed or reset by either e
 The stream MUST NOT contain any other messages.
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
-## ANNOUNCE Stream
-A publisher can open multiple ANNOUNCE streams to advertise a broadcast. 
+### ANNOUNCE Stream
+A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
 
 ~~~
 ANNOUNCE Message {
@@ -235,7 +297,7 @@ ANNOUNCE_OK Message {
 }
 ~~~
 
-## SUBSCRIBE Stream
+### SUBSCRIBE Stream
 A subscriber can open a SUBSCRIBE stream to request a named track within a broadcast.
 
 The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
@@ -243,12 +305,12 @@ The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow wit
 The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
 
 The publisher then transmits any matching group within the track over a separate GROUP stream.
-If a GROUP is unavailable or reset, the publisher MUST reply with a  SUBSCRIBE_DROP message. 
+If a GROUP is unavailable or reset, the publisher MUST reply with a  SUBSCRIBE_DROP message.
 
 The subscription is active until either endpoint closes or resets their side of the stream.
 To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been delivered before closing the stream.
 
-### SUBSCRIBE 
+#### SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
 
 ~~~
@@ -272,7 +334,7 @@ SUBSCRIBE Message {
 **Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
 
-### SUBSCRIBE_OK
+#### SUBSCRIBE_OK
 The publisher acknowledges the SUBSCRIBE with an INFO message.
 This is informational, avoiding the nerd for a separate INFO_REQUEST.
 See the INFO section for details.
@@ -281,7 +343,7 @@ The publisher SHOULD use the subscriber's preferred order instead of the indicat
 The indicated latest group MAY be outside of the Min/Max bounds.
 
 
-### SUBSCRIBE_UPDATE
+#### SUBSCRIBE_UPDATE
 The subscriber MAY modify a subscription with a SUBSCRIBE_UPDATE message.
 
 ~~~
@@ -298,7 +360,7 @@ SUBSCRIBE_UPDATE Message {
 **Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-### SUBSCRIBE_DROP
+#### SUBSCRIBE_DROP
 The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve a group within the requested range.
 
 ~~~
@@ -314,7 +376,7 @@ SUBSCRIBE_DROP {
 **Error Code**: An error code indicated by the application.
 
 
-## FETCH
+### FETCH Stream
 A subscriber can open a bidirectional FETCH stream to receive a single GROUP at a specified offset.
 This is primarily used to recover from an abrupt stream termination.
 
@@ -337,13 +399,13 @@ The stream may be reset with an error code by either endpoint.
 
 DISCUSS: Is there any merit in creating a unidirectional stream instead?
 
-## INFO Stream
+### INFO Stream
 The subscriber may request information about a track.
 
 The subscriber encodes a INFO_REQUEST message and the publisher replies with an INFO message.
 There MUST NOT be any subsequent messages on the stream.
 
-### INFO_REQUEST
+#### INFO_REQUEST Message
 ~~~
 INFO_REQUEST Message {
   Broadcast Name (b)
@@ -351,19 +413,22 @@ INFO_REQUEST Message {
 }
 ~~~
 
-### INFO
+#### INFO Message
 The publisher replies with an INFO message.
 
 ~~~
 INFO Message {
   Latest Group (i)
+  Default Priority (i)
   Default Order (i)
 }
 ~~~
 
-**Latest Group**: The latest group as currently known by the publisher.
+**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
 
-**Default Order**: The publisher's preferred order of the groups within the subscription: none (0), ascending (1), or descending (2).
+**Default Priority**: The producer's preferred priority of tracks within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher should transmit *lower* values first during congestion.
+
+**Default Order**: The producer's preferred order of the groups within the subscription: none (0), ascending (1), or descending (2).
 
 # Data Streams
 Unidirectional streams are used for data, with the exception of FETCH because I'm still unsure.
@@ -374,7 +439,7 @@ Unidirectional streams are used for data, with the exception of FETCH because I'
 | 0x0  | GROUP     | Publisher |
 |------|-----------|-|
 
-## GROUP Stream
+### GROUP Stream
 The publisher creates GROUP streams in response to a SUBSCRIBE.
 
 The stream MUST start with a GROUP message and MAY be followed by any number of OBJECT messages.
@@ -382,7 +447,7 @@ The stream MUST start with a GROUP message and MAY be followed by any number of 
 The publisher MUST send a SUBSCRIBE_DROP if the stream is reset using the corresponding error code.
 This includes resets triggered by the subscriber via STOP_SENDING.
 
-### GROUP Message
+#### GROUP Message
 The GROUP message contains information about the group, as well as a reference to the subscription being served.
 
 ~~~
@@ -399,7 +464,7 @@ A value of 0 indicates until the next group.
 A publisher SHOULD subtract the amount of time the group has been cached from the TTL.
 A subscriber MAY try to FETCH/SUBSCRIBE the Group again after it can no longer be cached, potentially refreshing the TTL or learning the error code.
 
-### OBJECT Message
+#### OBJECT Message
 The OBJECT message consists of a length followed by that many bytes.
 
 ~~~
@@ -492,14 +557,14 @@ I've summarized some of the high level changes:
 
 ## QUIC Mapping
 Despite the name "Media over QUIC", the MoqTransport draft does a poor of using QUIC.
-The most important part of the protocol was quite literally an afterthought. 
+The most important part of the protocol was quite literally an afterthought.
 
-MoqTransfork is 
+MoqTransfork is
 
 an extension of QUIC with streams and datagrams at the core.
-Each stream and datagram are augmented with additional behavior 
+Each stream and datagram are augmented with additional behavior
 
-It might seem subtle, but the 
+It might seem subtle, but the
 
 This includes the ability to subscribe to
 
@@ -735,14 +800,14 @@ Objects can be used to carry media frames, metadata, control messages, or really
 
 # Control Streams
 Bidirectional streams are used for control messages.
- 
+
 Note that QUIC bidirectional streams have both a send and recv direction that an endpoint can close independently. To simplify things, this document only refers to the send side of the stream as either:
 
 - **closed**: The sender has transmitted a STREAM_FIN and all STREAM data has been acknowledged.
 - **reset**: The sender has transmitted a RESET_STREAM with an error code, OR the receiver has transmitted a STOP_SENDING (which then triggers a RESET_STREAM).
 
 The first varint of each stream indicates the type.
-Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION. 
+Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
 
 |------|-----------|-------
 | ID   | Type      | Role |
@@ -776,7 +841,7 @@ The session remains active until the SETUP stream is closed or reset by either e
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
 ## ANNOUNCE Stream
-A publisher can open multiple ANNOUNCE streams to advertise a broadcast. 
+A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
 
 ~~~
 ANNOUNCE Message {
@@ -787,7 +852,7 @@ ANNOUNCE Message {
 
 The announcement is active until the stream is closed or reset by either endpoint. Notably, a subscriber can close the send side of the stream to indicate that no error occurred but its not interested.
 
-The subscriber MUST reply on the same stream with an OK message. 
+The subscriber MUST reply on the same stream with an OK message.
 
 ~~~
 OK Message {
@@ -861,7 +926,7 @@ The publisher replies with the contents on the same stream. See the GROUP sectio
 
 The publisher closes the stream once the entire GROUP has been transferred, or resets with an error code.
 
-The subscriber may close or reset the 
+The subscriber may close or reset the
 
 
 DISCUSS: This is notably different from SUBSCRIBE. Is there any merit in creating a unidirectional stream instead?
