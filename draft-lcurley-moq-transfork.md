@@ -53,27 +53,60 @@ TODO Abstract
 
 # Fork
 This draft (moq-transfork-00) is based on moq-transport-03.
+The concepts, motivations, and terminology are very similar on purpose.
 
+As one of the authors of the MoqTransport, it pains me to fork the draft.
+I've spent hundreds of hours of my personal time on this project and I'm convinced that it's going to be successful.
+However, the way that MoqTransport utilizes QUIC (via the object model) is so flawed that I can't continue recommending the draft in good faith.
 
-## QUIC Mapping
+This fork is meant to be constructive.
+An alternative vision, where we embrace the properties of QUIC instead of shunning them.
+My hope is that some of the ideas make it upstream.
+
+Here's a list of differences ordered from most important to least:
+
+## Object Model
+MoqTransport introduces the concept of Tracks, Groups, and Objects.
+While not explicitly stated, these implicitly map to media concepts:
+
+- Track: Audio/Video Track
+- Group: Video Group of Pictures
+- Object: Audio/Video Frame
+
 The most important part of any Media over QUIC protocol is right in the name.
 How do you transfer Media over QUIC?
 
-QUIC streams provide concrete properties, most importantly that they are ordered/reliable within a stream and unordered/cancellable between streams.
-MoqTransfork extends these properties, adding the ability to filter/prioritize streams (called "groups") via subscriptions.
-An application can build the actual media mapping on top of these well defined properties.
-See the appendix for examples.
+Unfortunately, the answer for MoqTransport is "it depends".
 
-This is not true for MoqTransport, as the properties of the object model are dynamic based on the track's "delivery preference":
+Thus the properties of the object model are dynamic and can vary wildly depending on the application.
+Each track has one of 4 "delivery preferences" that dictates the mapping to QUIC streams.
+The application/relay can further drop, reorder, and prioritize objects.
+The transport has become so undefined that some argue this can be done within QUIC streams themselves, invalidating the properties of QUIC streams.
 
+We've managed to define so many optional properties that nothing concrete is left.
+This causes a migraine for everyone involved; you can't build a generic library nor can you reason about what the transport actually provides to the application.
+The object model only serves to give the same name to wildly different "objects".
+
+MoqTransfork takes a different approach.
+QUIC provides concrete properties that MoqTransfork then extends, such as the ability to subscribe and prioritize.
+The object model provided is static, so a "group" behaves identically regardless of the application, implementation, relay, or client.
+
+There is no implicit mapping to media; 
+the application instead builds on top the concrete properties provided by MoqTransfork.
+For example, a "group" could be a single frame, or a group of pictures, or an SVC layer, or a chat message, or whatever the application wants.
+See the appendix for more examples.
+
+## QUIC Mapping
+The QUIC object model provides concrete properties.
+The most important is that QUIC streams are ordered/reliable within a stream and unordered/unreliable between streams.
+
+As mentioned above, MoqTransport blunders this by making tracks configurable via modes:
 - QUIC Stream per Track
 - QUIC Stream per Group
 - QUIC Stream per Object
 - QUIC Datagram per Object
 
-What's worse is that the application can decide to introduce gaps or deliver in any order without negotiation.
-This all causes a migraine for both the application and implementation as the properties of the transport change on a whim.
-The object model only serves to give the same name to wildly different objects.
+Something as simple as signaling the last object within a group requires a custom message, since the QUIC stream itself cannot be utilized.
 
 This is the one change that NEEDs to be in MoqTransport.
 Unfortunately, thete has been an ongoing debate for years now and there's nothing left to do but fork.
