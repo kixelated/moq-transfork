@@ -55,13 +55,18 @@ TODO Abstract
 This draft (moq-transfork-00) is based on moq-transport-03.
 The concepts, motivations, and terminology are very similar on purpose.
 
-As one of the authors of the MoqTransport, it pains me to fork the draft.
-I've spent hundreds of hours of my personal time on this project and I'm convinced that it's going to be successful.
-However, the way that MoqTransport utilizes QUIC (via the object model) is so flawed that I can't continue recommending the draft in good faith.
+I absolutely believe in the motivation and potential of Media over QUIC.
+The layering is phenomenal and addresses many of the problems with current live media protocols.
+I fully support the goals of the working group and the IETF process.
+
+However, there are fundamental flaws with how MoqTransport utilizes QUIC.
+It's been years and we're still unable to align on the most critical properties of the transport, opting instead to carve out divergent modes.
+Media over QUIC is still very experimental, and yet we're attempting to find middle ground with nothing concrete on either side.
+In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive.
 An alternative vision, where we embrace the properties of QUIC instead of shunning them.
-My hope is that some of the ideas make it upstream.
+My hope is that some of the ideas make it upstream but I'm also fine maintaining a fork.
 
 Here's a list of differences ordered from most important to least:
 
@@ -78,18 +83,18 @@ How do you transfer Media over QUIC?
 
 Unfortunately, the answer for MoqTransport is "it depends".
 
-Thus the properties of the object model are dynamic and can vary wildly depending on the application.
+And thus the properties of the object model are fully dynamic.
 Each track has one of 4 "delivery preferences" that dictates the mapping to QUIC streams.
 The application/relay can further drop, reorder, and prioritize objects.
-The transport has become so undefined that some argue this can be done within QUIC streams themselves, invalidating the properties of QUIC streams.
+The properties of the transport have become so undefined that some argue even objects within a QUIC stream can be dropped/reordered, defeating the entire point of using streams.
 
 We've managed to define so many optional properties that nothing concrete is left.
 This causes a migraine for everyone involved; you can't build a generic library nor can you reason about what the transport actually provides to the application.
-The object model only serves to give the same name to wildly different "objects".
+The object model only serves to give the same name to wildly different "objects", confusing even those most versed in the draft.
 
 MoqTransfork takes a different approach.
-QUIC provides concrete properties that MoqTransfork then extends, such as the ability to subscribe and prioritize.
-The object model provided is static, so a "group" behaves identically regardless of the application, implementation, relay, or client.
+QUIC provides concrete properties that MoqTransfork then extends for the purpose of live media, such as the ability to subscribe and prioritize.
+The object model is static, so a "group" behaves identically regardless of the application, implementation, relay, or client.
 
 There is no implicit mapping to media; 
 the application instead builds on top the concrete properties provided by MoqTransfork.
@@ -97,16 +102,18 @@ For example, a "group" could be a single frame, or a group of pictures, or an SV
 See the appendix for more examples.
 
 ## QUIC Mapping
-The QUIC object model provides concrete properties.
-The most important is that QUIC streams are ordered/reliable within a stream and unordered/unreliable between streams.
+QUIC streams provide concrete properties.
+The data within a QUIC stream is delivered reliably and in order until a STREAM_FIN, or abruptly truncated with a RESET_STREAM.
+Critically, QUIC streams are independent and can be delivered out-of-order and even prioritized.
 
-As mentioned above, MoqTransport blunders this by making tracks configurable via modes:
+As mentioned above, MoqTransport blunders by making tracks configurable via modes:
 - QUIC Stream per Track
 - QUIC Stream per Group
 - QUIC Stream per Object
 - QUIC Datagram per Object
 
-Something as simple as signaling the last object within a group requires a custom message, since the QUIC stream itself cannot be utilized.
+Something as simple as signaling the last object within a group requires divergent functionality or a custom message, since the QUIC stream itself cannot be utilized.
+The decision was made to explicitly 
 
 This is the one change that NEEDs to be in MoqTransport.
 Unfortunately, thete has been an ongoing debate for years now and there's nothing left to do but fork.
@@ -512,7 +519,7 @@ I fully support the goals of the working group and the IETF process.
 However, it's clear that theres a problem within MoqTransport.
 QUIC is still a relatively new network protocol and there are very different ideas on how to utilize it.
 As a result, the draft is intentionally obtuse, has divergent modes/flags, and has few concrete properties that can be relied on.
-In our RUSH to standardize a protocol, the QUICR solutions often lead to WARP in ideals.
+
 
 On a personal level, I've spent far too much of my time on MoQ and I don't want to lose it all.
 This fork is meant to be constructive, unlike the frequent debates about the (lack of) properties of the object model.
