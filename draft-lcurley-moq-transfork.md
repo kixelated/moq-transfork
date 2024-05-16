@@ -174,18 +174,19 @@ I concede that we may need more than an error code in the future.
 But until then this is super cute and simplifies the implementation.
 
 ### No Datagrams
-The usage of datagrams in MoqTransport creates strange behavior when dealing with multiple subscribers at different latency targets.
+MoqTransport allows small objects to be sent as QUIC datagrams.
+This is often useful when the desired latency is below the RTT as it avoids some overhead.
 
-For example, consider when audio is transmitted via datagrams.
-This can make sense when the desired latency is lower than the RTT, but for any other latency targets, the one-and-done nature of datagrams results in higher loss and a worse user experience.
-Datagrams cater to real-time viewers in exchange for marginally lower overhead.
+The problem with QUIC datagrams is that they do a poor job catering to higher latency subscribers.
+When retransmissions are possible, such as when RTT is low and bandwidth is available, the one-and-done nature of datagrams results in a worse user experience.
+This is especially true for VOD use cases, where it may have made sense to use datagrams for the original broadcast, but definitely not for the replay.
 
-The MoqTransfork alternative is to `SUBSCRIBE order=descending`, requesting that any newer data is delivered first.
-In the above example, the latest audio frame is always transmitted first, with possible (temporary) gaps during congestion.
-A subscriber can optionally skip over these gaps with `SUBSCRIBE_UPDATE start=latest`.
+The MoqTransfork alternative is to create a QUIC stream, write the data, and send a RESET_STREAM after a short delay.
+This works but incurs additional overhead and is subject to flow control.
+The advantage is that payloads can be larger than the MTU and may be retransmitted when RTT < delay.
 
-A future version of this draft may support datagrams but as a separate entity from groups/objects given the separate properties.
-
+A future version of this draft may support datagrams.
+They would be separate entities from groups/objects as they have different properties suited only for real-time scenarios.
 
 ### Only WebTransport
 A future version of the draft will
