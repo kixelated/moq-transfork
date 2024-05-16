@@ -146,15 +146,16 @@ When deduplicating subscriptions, a relay can resolve conflicts by using the pro
 That way the viewer's preference is always used for the last hop, but upstream hops might instead use the producer's preference when serving multiple viewers.
 
 ### Byte Offsets
-When a connection or subscription is severed, it's often desirable to continue right where it left off.
+When a connection or subscription is severed, it's desirable to resume where it left off.
 
 MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
-This isn't a great solution, as objects can be large and delivered out of order, causing duplication when trying to fill gaps.
-It can also cause a fragmented cache as a relay needs to parse/split an incoming stream at object boundaries.
+This is an okay approach, however it can result in redownloading objects (ex. incomplete keyframes) especially when they are delivered out of order.
+But critically it causes a fragmented cache, as a relay needs to parse incoming streams and split them at object boundaries.
 
 MoqTransfork instead utilizes FETCH for each incomplete GROUP at a byte offset.
-This ensures that only the missing tail of a reset GROUP stream is delivered.
-It also simplies relays, as they no longer keep track of object offsets, and it allows an advanced relay to forward STREAM frames out of order.
+This ensures that only the missing tail of an incomplete stream is delivered.
+It also dramatically simplifies relays, allowing them to stream from a cache by byte offset instead of a parsed marker (object ID).
+An advanced relay can even forward STREAM chunks out of order.
 
 ### Control Streams
 MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
