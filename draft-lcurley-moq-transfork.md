@@ -40,9 +40,7 @@ author:
 normative:
 
 informative:
-  moqt: draft-ietf-moq-transport
-  quic-streams: draft-kazuho-quic-quic-on-streams
-
+  moqt: I-D.ietf-moq-transport
 
 --- abstract
 
@@ -52,7 +50,8 @@ TODO Abstract
 --- middle
 
 # Fork
-This draft (moq-transfork-00) is based on moq-transport-03.
+
+This draft is based on moq-transport-03 [moqt].
 The concepts, motivations, and terminology are very similar on purpose.
 
 I absolutely believe in the motivation and potential of Media over QUIC.
@@ -240,8 +239,7 @@ A sized payload of bytes within a group.
 This currently only provides framing, which is useful in some applications.
 
 
-# Encoding
-## Control Streams
+# Control Streams
 Bidirectional streams are used for control messages.
 
 Note that QUIC bidirectional streams have both a send and recv direction can be closed or reset (with an error code) independently.
@@ -266,7 +264,7 @@ A stream type MUST NOT contain messages defined for other stream types unless ot
 |------|-----------|--|
 
 
-### SETUP Stream
+## SETUP Stream
 Upon establishing the WebTransport session, the client opens a SETUP stream.
 
 The client sends a SETUP_CLIENT message, containing:
@@ -284,7 +282,7 @@ The session remains active until the SETUP stream is closed or reset by either e
 The stream MUST NOT contain any other messages.
 A future version of this draft may use the SETUP stream for other purposes, for example authentication.
 
-### ANNOUNCE Stream
+## ANNOUNCE Stream
 A publisher can open multiple ANNOUNCE streams to advertise a broadcast.
 
 ~~~
@@ -304,7 +302,7 @@ ANNOUNCE_OK Message {
 }
 ~~~
 
-### SUBSCRIBE Stream
+## SUBSCRIBE Stream
 A subscriber can open a SUBSCRIBE stream to request a named track within a broadcast.
 
 The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
@@ -317,7 +315,7 @@ If a GROUP is unavailable or reset, the publisher MUST reply with a  SUBSCRIBE_D
 The subscription is active until either endpoint closes or resets their side of the stream.
 To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been delivered before closing the stream.
 
-#### SUBSCRIBE
+### SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
 
 ~~~
@@ -341,7 +339,7 @@ SUBSCRIBE Message {
 **Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
 
-#### SUBSCRIBE_OK
+### SUBSCRIBE_OK
 The publisher acknowledges the SUBSCRIBE with an INFO message.
 This is informational, avoiding the nerd for a separate INFO_REQUEST.
 See the INFO section for details.
@@ -350,7 +348,7 @@ The publisher SHOULD use the subscriber's preferred order instead of the indicat
 The indicated latest group MAY be outside of the Min/Max bounds.
 
 
-#### SUBSCRIBE_UPDATE
+### SUBSCRIBE_UPDATE
 The subscriber MAY modify a subscription with a SUBSCRIBE_UPDATE message.
 
 ~~~
@@ -367,7 +365,7 @@ SUBSCRIBE_UPDATE Message {
 **Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-#### SUBSCRIBE_DROP
+### SUBSCRIBE_DROP
 The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve a group within the requested range.
 
 ~~~
@@ -383,7 +381,7 @@ SUBSCRIBE_DROP {
 **Error Code**: An error code indicated by the application.
 
 
-### FETCH Stream
+## FETCH Stream
 A subscriber can open a bidirectional FETCH stream to receive a single GROUP at a specified offset.
 This is primarily used to recover from an abrupt stream termination.
 
@@ -406,13 +404,13 @@ The stream may be reset with an error code by either endpoint.
 
 DISCUSS: Is there any merit in creating a unidirectional stream instead?
 
-### INFO Stream
+## INFO Stream
 The subscriber may request information about a track.
 
 The subscriber encodes a INFO_REQUEST message and the publisher replies with an INFO message.
 There MUST NOT be any subsequent messages on the stream.
 
-#### INFO_REQUEST Message
+### INFO_REQUEST Message
 ~~~
 INFO_REQUEST Message {
   Broadcast Name (b)
@@ -420,7 +418,7 @@ INFO_REQUEST Message {
 }
 ~~~
 
-#### INFO Message
+### INFO Message
 The publisher replies with an INFO message.
 
 ~~~
@@ -446,7 +444,7 @@ Unidirectional streams are used for data, with the exception of FETCH because I'
 | 0x0  | GROUP     | Publisher |
 |------|-----------|-|
 
-### GROUP Stream
+## GROUP Stream
 The publisher creates GROUP streams in response to a SUBSCRIBE.
 
 The stream MUST start with a GROUP message and MAY be followed by any number of OBJECT messages.
@@ -454,7 +452,7 @@ The stream MUST start with a GROUP message and MAY be followed by any number of 
 The publisher MUST send a SUBSCRIBE_DROP if the stream is reset using the corresponding error code.
 This includes resets triggered by the subscriber via STOP_SENDING.
 
-#### GROUP Message
+### GROUP Message
 The GROUP message contains information about the group, as well as a reference to the subscription being served.
 
 ~~~
@@ -471,7 +469,7 @@ A value of 0 indicates until the next group.
 A publisher SHOULD subtract the amount of time the group has been cached from the TTL.
 A subscriber MAY try to FETCH/SUBSCRIBE the Group again after it can no longer be cached, potentially refreshing the TTL or learning the error code.
 
-#### OBJECT Message
+### OBJECT Message
 The OBJECT message consists of a length followed by that many bytes.
 
 ~~~
@@ -488,21 +486,6 @@ A MoqTransfork library MUST NOT inspect or modify the contents unless otherwise 
 
 
 # Security Considerations
-TODO Security
-
-
-# IANA Considerations
-
-This document has no IANA actions.
-
-
---- back
-
-# Acknowledgments
-{:numbered="false"}
-
-TODO acknowledge.
-
 TODO Security
 
 
