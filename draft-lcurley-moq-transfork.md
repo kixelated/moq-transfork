@@ -113,7 +113,6 @@ When deduplicating subscriptions, a relay can resolve conflicts by using the pro
 That way the viewer's preference is always used for the last hop, but upstream hops might instead use the producer's preference when serving multiple viewers.
 
 
-
 ### Byte Offsets
 When a connection or subscription is severed, it's desirable to resume where it left off.
 
@@ -143,22 +142,6 @@ Additionally, flow control will limit the maximum number of bidirectional stream
 I concede that we may need more than an error code in the future.
 But until then this is super cute and simplifies the implementation.
 
-### Expiration 
-Media can get quite large so it's unreasonable to expect it should be cached forever.
-
-Both the MoqTransfork publisher and subscriber can indicate a desired expiration duration.
-When a group expires, any cached or ongoing GROUP stream is dropped.
-Subsequent requests via FETCH or SUBSCRIBE could refresh the expiration or fail with an "expired" error code.
-
-The publisher indicates an optional expiration for each GROUP.
-This is useful for ephemeral media, or broadcasts not intended to be available as a VOD. 
-
-The subscriber indicates the expiration for each group in SUBSCRIBE or FETCH.
-This is useful for signalling the maximum size of the jitter buffer, after which old content should just be dropped.
-
-The expiration is based on receive time so it can be racey.
-A future version of this draft may make it based on a presentation timestamp instead.
-
 ### No Datagrams
 MoqTransport allows small objects to be sent as QUIC datagrams.
 This is often useful when the desired latency is below the RTT as it avoids some overhead.
@@ -174,8 +157,7 @@ The advantage is that payloads can be larger than the MTU and may be retransmitt
 A future version of this draft may support datagrams.
 They would be separate entities from groups/objects as they have different properties suited only for real-time scenarios.
 
-### Only WebTransport
-A future version of the draft will
+
 
 # Concepts
 
@@ -213,7 +195,7 @@ For example, a `catalog` track that lists all other tracks.
 A series of objects within a track, served via a QUIC stream.
 
 Just like QUIC streams, a group is delivered reliably in order with no gaps.
-There is a header that dicates stream-level properties such as TTL.
+There is a header that outlines any stream-level properties.
 
 Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's RESET_STREAM or STOP_SENDING respectively.
 When a group is cancelled, the publisher transmits a GROUP_DROPPED message to inform the subscriber.
@@ -252,7 +234,7 @@ A stream type MUST NOT contain messages defined for other stream types unless ot
 
 
 ## SETUP Stream
-Upon establishing the WebTransport session, the client opens a SETUP stream.
+Upon establishing the QUIC/WebTransport session, the client opens a SETUP stream.
 
 The client sends a SETUP_CLIENT message, containing:
 - supported versions
@@ -307,13 +289,13 @@ SUBSCRIBE is sent by a subscriber to start a subscription.
 
 ~~~
 SUBSCRIBE Message {
-  Subscribe ID (i),
-  Broadcast Name (b),
-  Track Name (b),
-  Priority (i),
-  Order (i),
-  Min Group (i),
-  Max Group (i),
+  Subscribe ID (i)
+  Broadcast Name (b)
+  Track Name (b)
+  Priority (i)
+  Order (i)
+  Min Group (i)
+  Max Group (i)
 }
 ~~~
 
@@ -422,6 +404,7 @@ INFO Message {
 
 **Default Order**: The producer's preferred order of the groups within the subscription: none (0), ascending (1), or descending (2).
 
+
 # Data Streams
 Unidirectional streams are used for data, with the exception of FETCH because I'm still unsure.
 
@@ -445,16 +428,9 @@ The GROUP message contains information about the group, as well as a reference t
 ~~~
 GROUP Message {
   Subscribe ID (i)
-  Group ID (i)
-  TTL (i)
+  Group Sequence (i)
 }
 ~~~
-
-**TTL**: The group may only be cached for this many milliseconds.
-A value of 0 indicates until the next group.
-
-A publisher SHOULD subtract the amount of time the group has been cached from the TTL.
-A subscriber MAY try to FETCH/SUBSCRIBE the Group again after it can no longer be cached, potentially refreshing the TTL or learning the error code.
 
 ### OBJECT Message
 The OBJECT message consists of a length followed by that many bytes.
