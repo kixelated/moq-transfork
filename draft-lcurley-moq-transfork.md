@@ -87,12 +87,11 @@ However, the cost is a net 10% increase in bitrate and additional latency.
 
 But the real problem is not the impractically of this use-case, but the implementation complexity required.
 QUIC streams are reliable/ordered by design, so in order to drop individual frames it becomes necessary to subdivide them into a stream per frame along with associated bookkeeping.
-We decided to avoid serializing the dependency graph on the wire, opting instead for a crude priority system between.
-This means that the application has to implement a GoP reassembler based on the parsed codec dependency graph or risk introducing artifacts; a non-trivial task.
-It also enables publishers to inadvertently drop/expire reference frames causing an undecodable mess.
+The dependency graph is not serialized on the wire, so the viewer must implement a GoP reassembler based on the parsed codec dependency graph; a non-trivial task.
+It also allows publishers to inadvertently drop/expire reference frames causing an undecodable mess.
 
-MoqTransfork makes the ability to drop individual frames a non-goal.
-It relies instead on decode order within a GoP, a simplification that is optimal for the vast majority of encodings, avoids artifacts, and is used by WebRTC, HLS/DASH, and RTMP alike.
+MoqTransfork makes the ability to drop individual frames a non-goal and instead relies instead on decode order within a GoP (aka DTS).
+This simplification is optimal for the vast majority of encodings, avoids artifacts, and is used by WebRTC, HLS/DASH, and RTMP alike.
 An advanced application that wants to drop non-reference frames can use multiple tracks to form layers, via SVC or B-pyramids.
 
 
