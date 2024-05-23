@@ -70,7 +70,7 @@ There's further properties that depend on the application, expanding the permuta
 We've managed to define so many dynamic properties that there is little concrete to build upon or reason about.
 
 The transport needs to have clearly defined properties.
-A developer should be able to understand the properties of an "object" without caveats or undefined behavior, and it should not change based on the application.
+A developer should be able to understand the properties of a "group" without caveats or undefined behavior, and it should not change based on the application.
 
 ### Non-Reference Frames
 While not explicitly stated, the complexity in MoqTransport stems almost entirely from a single use-case: the ability to drop individual non-reference frames.
@@ -90,9 +90,9 @@ QUIC streams are reliable/ordered by design, so in order to drop individual fram
 The dependency graph is not serialized on the wire, so the viewer must implement a GoP reassembler based on the parsed codec dependency graph; a non-trivial task.
 It also allows publishers to inadvertently drop/expire reference frames causing an undecodable mess.
 
-MoqTransfork makes the ability to drop individual frames a non-goal and instead relies instead on decode order within a GoP (aka DTS).
-This simplification is optimal for the vast majority of encodings, avoids artifacts, and is used by WebRTC, HLS/DASH, and RTMP alike.
-An advanced application that wants to drop non-reference frames can use multiple tracks to form layers, via SVC or B-pyramids.
+MoqTransfork makes the ability to drop individual frames a non-goal.
+It instead relies instead on decode order within a GoP (aka DTS), a simplification that is optimal for most encodings, avoids artifacts, and is used by WebRTC, HLS/DASH, and RTMP alike.
+An advanced application that wants to drop non-reference frames can use multiple tracks to form layers via SVC or B-pyramids.
 
 
 ## Differences
@@ -104,8 +104,8 @@ The MoqTransfork object model is static and maps directly to QUIC streams.
 The data within a QUIC stream is delivered reliably and in order until a STREAM_FIN, or abruptly truncated with a RESET_STREAM.
 Most importantly for live media, QUIC streams can be independently transmitted, prioritized, and dropped.
 
-MoqTransfork builds on top of these properties as each Object is a QUIC stream.
-Due to the nature of QUIC, most operations are done at the stream/object level, such as dropping, reordering, and prioritizing.
+MoqTransfork builds on top of these properties as each Group is a QUIC stream.
+Due to the nature of QUIC, most operations are done at the stream/group level, such as dropping, reordering, and prioritizing.
 It's not possible to circumvent QUIC stream properties (ex. gaps in a stream) and attempting to do so defeats the purpose of using QUIC.
 
 The result is transport with well-defined properties.
@@ -130,7 +130,7 @@ MoqTransport implements this via subscriptions that can start/end at an object I
 This is an okay approach, however it can result in redownloading objects (ex. incomplete keyframes) especially when groups are delivered out of order.
 But critically it will cause a fragmented cache, as a relay needs to parse incoming streams, split them at object boundaries, and operate independently on each object.
 
-MoqTransfork instead utilizes FETCH to serve incomplete OBJECTs at a byte offset, relying on the fact that QUIC streams are tail dropped when reset.
+MoqTransfork instead utilizes FETCH to serve incomplete Groups at a byte offset, relying on the fact that QUIC streams are tail dropped when reset.
 This subtle change dramatically simplifies relays, allowing them to stream from a cache by byte offset instead of a parsed marker (object ID).
 An advanced relay can now even forward STREAM chunks out of order, which was not always possible with Object IDs.
 
@@ -156,7 +156,7 @@ The MoqTransfork alternative is to create a QUIC stream, write the data, and sen
 This is a few more bytes on the wire but gains flow control, drop notifications, and (potential) retransmissions.
 
 I think datagrams are an optimization that can be added later.
-They would be separate from Objects and applicable only for unreliable live scenarios.
+They would be separate from Groups and applicable only for unreliable live scenarios.
 But QUIC datagrams have a lot of pitfalls and are eeirily simimilar to QUIC STREAM frames.
 
 
@@ -168,9 +168,9 @@ A future draft will.
 The MoqTransfork object model consists of:
 
 - **Broadcast**: A collection of Tracks from a single producer.
-- **Track**: A series of Objects within a Broadcast.
-- **Object**: A series of Frames within a Track, served via a QUIC stream.
-- **Frame**: A sized payload of bytes within an Object.
+- **Track**: A series of Groups within a Broadcast.
+- **Group**: A series of Frames within a Track, served via a QUIC stream.
+- **Frame**: A sized payload of bytes within a Group.
 
 ### Broadcast
 Each broadcast is identified by a unique name within the session.
@@ -180,19 +180,19 @@ The MoqTransport draft refers to this as "track namespace".
 I couldn't help but bikeshed.
 
 ### Track
-Each subscription is scoped to a single track and starts/ends at an Object boundary.
+Each subscription is scoped to a single track and starts/ends at a Group boundary.
 The subscriber chooses the priority/order of each track, dictating which track arrives first during congestion.
 
 Each track has a unique name within the broadcast.
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
 For example, a `catalog` track that lists all other tracks.
 
-### Object
-Just like QUIC streams, an Object is delivered reliably in order with no gaps.
+### Group
+Just like QUIC streams, a Group is delivered reliably in order with no gaps.
 There is a header containing any stream-level properties.
 
-Both the publisher and subscriber can cancel an OBJECT stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
-When an Object is cancelled, the publisher transmits an OBJECT_DROPPED message to inform the subscriber.
+Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
+When a GROUP is cancelled, the publisher transmits a GROUP_DROPPED message to inform the subscriber.
 A subscriber may issue a FETCH to resume at a given byte offset.
 
 ### Frame
@@ -213,7 +213,7 @@ Streams may only be created by the indicated role, otherwise the session MUST be
 A stream type MUST NOT contain messages defined for other stream types unless otherwise specified (ex. INFO).
 
 |------|-----------|------------|
-| ID   | Type      | Role       |
+| ID   | Stream    | Role       |
 |-----:|:----------|------------|
 | 0x0  | Session   | Client     |
 |------|-----------|------------|
@@ -275,11 +275,11 @@ The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow wit
 
 The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
 
-The publisher then transmits any matching object within the track over a separate Object stream.
-If a OBJECT is unavailable or reset, the publisher MUST reply with a OBJECT_DROP message.
+The publisher then transmits any matching groups within the track over a separate Group stream.
+If a GROUP is unavailable or reset, the publisher MUST reply with a GROUP_DROP message.
 
 The subscription is active until either endpoint closes or resets their side of the stream.
-To ensure reliable delivery, an endpoint SHOULD wait until all OBJECT messages, or a corresponding OBJECT_DROP message, have been delivered before closing the stream.
+To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding GROUP_DROP message, have been delivered before closing the stream.
 
 ### SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -291,21 +291,21 @@ SUBSCRIBE Message {
   Track Name (b)
   Priority (i)
   Order (i)
-  Min Object (i)
-  Max Object (i)
+  Min Group (i)
+  Max Group (i)
 }
 ~~~
 
 **Priority**: The transmission priority of the subscription relative to all other active fetches and subscriptions.within the session. The publisher SHOULD transmit *lower* values first during congestion.
 
-**Order**: The transmission order of the Objects within the subscription. The publisher SHOULD transmit objects based on their sequence number in default (0), ascending (1), or descending (2) order.
+**Order**: The transmission order of the Groups within the subscription. The publisher SHOULD transmit groups based on their sequence number in default (0), ascending (1), or descending (2) order.
 
-**Min Object**: The minimum object sequence number plus 1. A value of 0 indicates the latest object as determined by the publisher.
+**Min Group**: The minimum group sequence number plus 1. A value of 0 indicates the latest group as determined by the publisher.
 
-**Max Object**: The maximum object sequence number plus 1. A value of 0 indicates there is no maximum.
+**Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
-If the subscription is accepted, the publisher will start transmitting objects for the requested track.
-Object streams are transmitted according to Priority and Order on a best effort manner, but are not guaranteed to arrive in any order.
+If the subscription is accepted, the publisher will start transmitting groups for the requested track.
+GRoup streams are transmitted according to Priority and Order on a best effort manner, but are not guaranteed to arrive in any order.
 
 
 ### SUBSCRIBE_OK
@@ -314,17 +314,17 @@ Most of the message is informational and overlaps with INFO.
 
 ~~~
 SUBSCRIBE_OK Message {
-  Latest Object (i)
+  Latest Group (i)
   Default Priority (i)
   Default Order (i)
 }
 ~~~
 
-**Latest Object**: The latest object as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream. The latest object MAY be outside of specified Min/Max bounds.
+**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream. The latest group MAY be outside of specified Min/Max bounds.
 
 **Default Priority**: The default priority of this track within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher SHOULD transmit subscriptions with *lower* values first during congestion.
 
-**Default Order**: The default order of the objects within the subscription: none (0), ascending (1), or descending (2). The publisher MUST use the subscriber's order if it was specified.
+**Default Order**: The default order of the groups within the subscription: none (0), ascending (1), or descending (2). The publisher MUST use the subscriber's order if it was specified.
 
 
 ### SUBSCRIBE_UPDATE
@@ -334,34 +334,34 @@ The subscriber MAY modify a subscription with a SUBSCRIBE_UPDATE message.
 SUBSCRIBE_UPDATE Message {
   Priority (i)
   Order (i)
-  Min Object (i)
-  Max Object (i)
+  Min Group (i)
+  Max Group (i)
 }
 ~~~
 
-**Min Object**: The new minimum object sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
+**Min Group**: The new minimum group sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
 
-**Max Object**: The new maximum object sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
+**Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-### SUBSCRIBE_DROP
-The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve an object within the requested range.
+### GROUP_DROP
+The publisher replies with a GROUP_DROP message when it is unable to serve a group within the requested range.
 
 ~~~
-SUBSCRIBE_DROP {
-  Start Oviect (i)
+GROUP_DROP {
+  Start Group (i)
   Count (i)
   Error Code (i)
 }
 ~~~
 
-**Start Object**: The first object within the dropped range.
-**Count**: The number of additional objects after the first. The End Object can be computed as Start Object + Count.
+**Start Group**: The first group within the dropped range.
+**Count**: The number of additional groups after the first. The End Group can be computed as Start Group + Count.
 **Error Code**: An error code indicated by the application.
 
 
 ## Fetch Stream
-A subscriber can open a bidirectional Fetch stream to receive a single Object at a specified offset.
+A subscriber can open a bidirectional Fetch stream to receive a single Group at a specified offset.
 This is primarily used to recover from an abrupt stream termination.
 
 ~~~
@@ -369,14 +369,14 @@ FETCH Message {
   Broadcast Name (b)
   Track Name (b)
   Priority (i)
-  Object (i)
+  Group (i)
   Offset (i)
 }
 ~~~
 
-**Priority**: The priority of the object relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
+**Priority**: The priority of the group relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
 
-**Offset**: The requested offset in bytes *after* the OBJECT header.
+**Offset**: The requested offset in bytes *after* the GROUP header.
 
 The publisher replies on the stream with the contents.
 The stream may be reset with an error code by either endpoint.
@@ -403,47 +403,47 @@ The publisher replies with an INFO message.
 
 ~~~
 INFO Message {
-  Latest Object (i)
+  Latest Group (i)
   Default Priority (i)
   Default Order (i)
 }
 ~~~
 
-**Latest Object**: The latest object as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
+**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
 
 **Default Priority**: The producer's preferred priority of tracks within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher should transmit *lower* values first during congestion.
 
-**Default Order**: The producer's preferred order of objects within the subscription: none (0), ascending (1), or descending (2).
+**Default Order**: The producer's preferred order of groups within the subscription: none (0), ascending (1), or descending (2).
 
 
 # Data Messages
 Unidirectional streams are used for data... with the exception of FETCH for now.
 
 |------|--------|-----------|
-| ID   | Type   | Role      |
+| ID   | Stream | Role      |
 |-----:|:-------|-----------|
-| 0x0  | OBJECT | Publisher |
+| 0x0  | Group  | Publisher |
 |------|--------|-----------|
 
-## Object Stream
-The publisher creates Object Streams in response to a SUBSCRIBE.
+## Group Stream
+The publisher creates Group Streams in response to a SUBSCRIBE.
 
-An Object stream MUST start with a OBJECT message and MAY be followed by any number of FRAME messages.
-An application MAY signal gaps with zero length Objects or Frames.
+A Group stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
+An application MAY signal gaps with zero length GRoup or Frames.
 
 Both the publisher and subscriber MAY reset the stream at any time.
 The lowest priority streams should be reset first during congestion.
 
-When an Object stream is reset, the publisher MUST send a SUBSCRIBE_DROP message on the corresponding Subscribe stream.
+When a Group stream is reset, the publisher MUST send a SUBSCRIBE_DROP message on the corresponding Subscribe stream.
 A future version of this draft may utilize reliable reset instead.
 
-### OBJECT Message
-The OBJECT message contains information about the Object, as well as a reference to the subscription being served.
+### GROUP Message
+The GROUP message contains information about the Group, as well as a reference to the subscription being served.
 
 ~~~
-OBJECT Message {
+GROUP Message {
   Subscribe ID (i)
-  Object Sequence (i)
+  Group Sequence (i)
 }
 ~~~
 
