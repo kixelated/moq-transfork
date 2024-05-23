@@ -38,19 +38,17 @@ I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-However, there are fundamental flaws with MoqTransport.
+However, there are some flaws with MoqTransport that I'd like to address.
 It's been years and we're still unable to align on the most critical property of the transport... how to utilize QUIC.
-The draft is littered with optional properties, flags, and delivery preferences in an attempt to find middle ground with nothing concrete on either side.
+The draft compromises by supporting multiple different approaches, but it does by leaving important properties undefined.
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
-This fork is meant to be constructive.
-An alternative vision, where we embrace the properties of QUIC instead of shunning and later reinventing them.
-My hope is that this draft can start a conversation on how to improve MoqTransport, or at the very least, provide a clear contrast.
+This fork is meant to be a constructive, alternative vision.
+I recognize that some of these ideas may he flawed, but my hope is that this draft can start a conversation on how to improve MoqTransport.
 
 
 ## Critique
 Before diving into the differences, I want to highlight the major issues with MoqTransport and why a fork is necessary.
-Many of my changes are superficial, but this needs to be addressed before we can move forward.
 
 ### Object Model
 MoqTransport introduces the concept of Tracks, Groups, and Objects.
@@ -61,43 +59,40 @@ While not explicitly stated, these implicitly map to media concepts:
 - **Object**: Audio/Video Frame
 
 But how do you deliver these over QUIC?
-Unfortunately, the answer for MoqTransport is "it depends".
+Unfortunately, "it depends".
 
 The application is responsible for choosing the properties of the object model via the "delivery preference", determining how the object model is mapped to QUIC streams (or datagrams).
-The publisher can further introduce gaps and choose how objects should be prioritized or dropped, with some arguing that this can be done in the middle of a QUIC stream (!).
+The application is further responsible for determining how to prioritize/drop objects or introduce gaps.
 
 This was always meant to be a compromise, allowing for experimentation without nailing any of the protocol down.
-However, we've managed to define so many optional properties that there is nothing concrete to build upon, with the object model only serving to give the same name to wildly different "objects".
-There are so many permutations that it's difficult to design or use the protocol, as the nuances of each mode often clash with each other.
+However, we've managed to define so many optional properties that there is nothing concrete to build upon.
+The stream mapping conflicts with the object model, which only serves to give the same name to wildly different "objects".
+Every statement has to be prefixed with: "when using a stream per X".
 
-Developers that build on top of MoqTransport have to decipher the draft to fully understanding the implications of each mode.
-Generic libraries are obtuse because everything is optional.
-Even the authors of the draft don't seem to grasp the implications of each design choice, as what works for one mode don't quite work for another (ex. TTL per object).
-
-MoqTransfork says "no more".
-The transport MUST have concrete properties backed by QUIC.
+The object model should have clearly defined properties.
+A developer should be able to understand the properties of a "group" without caveats or undefined behavior.
 
 ### Non-Reference Frames
-While not explicitly stated, the complexity in MoqTransport stems almost entirely from a single , unstated use-case: the ability to drop individual non-reference frames.
+While not explicitly stated, the complexity in MoqTransport stems almost entirely from a single use-case: the ability to drop individual non-reference frames.
 
 Video codecs involve complicated dependencies between frames/slices.
 A non-reference frame is a leaf node in the dependency tree, often a B-frame in H.264.
 The idea is that non-reference frame can be dropped during congestion, allowing the decoder to continue with the remaining frames with no problem.
 
-This idea sounds good on paper but ultimately fails to deliver.
+This idea sounds good on paper but it's a trap.
 Good encoders try to avoid non-reference frames because they fundamentally reduce the compression ratio;
 dead-end bits that can't be used for prediction.
 You gain the ability to halve the frame rate during congestion in order to drop 20% of the bitrate.
-However, the cost is a net 10% increase in bitrate and additional latency; it's not worth it.
+However, the cost is a net 10% increase in bitrate and additional latency.
 
 But the real problem is that this requirement is pandora's box to implement.
-MoqTransport now has to support gaps, reordering, and prioritization within a group of pictures.
-This involves transmitting each frame as its own QUIC stream (stream per object), indicating its position and priority in the larger group.
-Even this is flawed, as without transmitting the complex dependency graph on the wire, relays can inadvertently drop/expire reference frames and transmit an undecodable mess.
+QUIC streams are reliable/ordered by design, so in order to drop individual frames it becomes necessary to subdivide.
+The complex dependency graph is not written on the wire, so frames are delivered and decoded based on crude priorities. 
+It's very east for a relays or decoder to inadvertently drop/expire reference frames and present an undecodable mess to the viewer.
 
 MoqTransfork makes the ability to drop individual frames a non-goal.
-An advanced application that wants to drop non-reference frames should use multiple tracks to form layers, like SVC.
-It's significantly simpler to drop the tail of a layer rather than individual frames, with almost identical results in practice.
+It relies instead on decode order within a GoP, an over-simplification that avoids artifacts and is used by WebRTC, HLS/DASH, and RTMP alike.
+An advanced application that wants to drop non-reference frames can still use multiple tracks to form layers, via SVC or B-pyramids.
 
 
 ## Differences
@@ -106,12 +101,11 @@ Here's a high level overview of the differences between MoqTransport and MoqTran
 ### QUIC Mapping
 The MoqTransfork object model is static and maps directly to QUIC streams.
 
-QUIC provides concrete properties that we can leverage.
 The data within a QUIC stream is delivered reliably and in order until a STREAM_FIN, or abruptly truncated with a RESET_STREAM.
 Most importantly for live media, QUIC streams can be independently transmitted, prioritized, and dropped.
 
-MoqTransfork builds on top of these properties as each Group is a QUIC stream.
-Due to the nature of QUIC, most operations are done at the stream/group level, such as dropping, reordering, and prioritizing.
+MoqTransfork builds on top of these properties as each Object is a QUIC stream.
+Due to the nature of QUIC, most operations are done at the stream/object level, such as dropping, reordering, and prioritizing.
 It's not possible to circumvent QUIC stream properties (ex. gaps in a stream) and attempting to do so defeats the purpose of using QUIC.
 
 The result is transport with well-defined properties.
@@ -133,10 +127,10 @@ The result is that the last hop uses the viewer's preference, but upstream hops 
 When a connection or subscription is severed, it's desirable to resume where it left off.
 
 MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
-This is an okay approach, however it can result in redownloading objects (ex. incomplete keyframes) especially groups are delivered out of order.
+This is an okay approach, however it can result in redownloading objects (ex. incomplete keyframes) especially when groups are delivered out of order.
 But critically it will cause a fragmented cache, as a relay needs to parse incoming streams, split them at object boundaries, and operate independently on each object.
 
-MoqTransfork instead utilizes FETCH to serve incomplete GROUPs at a byte offset, since QUIC streams are tail dropped when reset.
+MoqTransfork instead utilizes FETCH to serve incomplete OBJECTs at a byte offset, relying on the fact that QUIC streams are tail dropped when reset.
 This subtle change dramatically simplifies relays, allowing them to stream from a cache by byte offset instead of a parsed marker (object ID).
 An advanced relay can now even forward STREAM chunks out of order, which was not always possible with Object IDs.
 
@@ -156,14 +150,14 @@ This is often useful when the desired latency is below the RTT as it avoids some
 
 The problem with QUIC datagrams is that they do a poor job catering to higher latency subscribers.
 When retransmissions are possible, such as when RTT is low and bandwidth is available, the one-and-done nature of datagrams results in a worse user experience.
-It might make sense to use datagrams for a live stream, but not for the VOD.
+It might make sense to use datagrams for a live stream, but not if you want to serve those same objects for the VOD.
 
 The MoqTransfork alternative is to create a QUIC stream, write the data, and send a RESET_STREAM after the TTL (unless acknowledged).
 This is a few more bytes on the wire but gains flow control, drop notifications, and (potential) retransmissions.
 
 I think datagrams are an optimization that can be added later.
-They would be separate from Groups/Frames and applicable only for unreliable live scenarios.
-But QUIC datagrams have a lot of pitfalls and are eeirily simimilar to QUIC STREAM frames; I'm not sure they need to be supported.
+They would be separate from Objects and applicable only for unreliable live scenarios.
+But QUIC datagrams have a lot of pitfalls and are eeirily simimilar to QUIC STREAM frames.
 
 # Concepts
 Many of the concepts are borrowed from MoqTransport so I'm not going to rehash them here.
@@ -173,8 +167,8 @@ A future draft will.
 The MoqTransfork object model consists of:
 
 - **Broadcast**: A collection of Tracks from a single producer.
-- **Track**: A series of Groups within a Broadcast.
-- **Group**: A series of Frames within a Track, served via a QUIC stream.
+- **Track**: A series of Objects within a Broadcast.
+- **Object**: A series of Frames within a Track, served via a QUIC stream.
 - **Frame**: A sized payload of bytes within a Group.
 
 ### Broadcast
@@ -185,26 +179,27 @@ The MoqTransport draft refers to this as "track namespace".
 I couldn't help but bikeshed.
 
 ### Track
-Each subscription is scoped to a single track and starts/ends at a Group boundary.
+Each subscription is scoped to a single track and starts/ends at an Object boundary.
 The subscriber chooses the priority/order of each track, dictating which track arrives first during congestion.
 
 Each track has a unique name within the broadcast.
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
 For example, a `catalog` track that lists all other tracks.
 
-### Group
-Just like QUIC streams, a group is delivered reliably in order with no gaps.
+### Object
+Just like QUIC streams, an Object is delivered reliably in order with no gaps.
 There is a header containing any stream-level properties.
 
-Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
-When a group is cancelled, the publisher transmits a GROUP_DROPPED message to inform the subscriber.
+Both the publisher and subscriber can cancel an OBJECT stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
+When an Object is cancelled, the publisher transmits an OBJECT_DROPPED message to inform the subscriber.
 A subscriber may issue a FETCH to resume at a given byte offset.
 
 ### Frame
 Frames currently only provides framing, hence the name.
 
-This is useful in some applications but may be removed in a future version of the draft.
-This extra layer of framing may be redundant or introduce buffering for some applications.
+This is useful in some applications but can also be redundant or increase memory usage, as the size of a frame must be known upfront.
+This may be removed in a future version of the draft.
+
 
 # Control Messages
 Bidirectional streams are used for control messages.
@@ -279,11 +274,11 @@ The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow wit
 
 The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
 
-The publisher then transmits any matching group within the track over a separate GROUP stream.
-If a GROUP is unavailable or reset, the publisher MUST reply with a SUBSCRIBE_DROP message.
+The publisher then transmits any matching object within the track over a separate Object stream.
+If a OBJECT is unavailable or reset, the publisher MUST reply with a OBJECT_DROP message.
 
 The subscription is active until either endpoint closes or resets their side of the stream.
-To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been delivered before closing the stream.
+To ensure reliable delivery, an endpoint SHOULD wait until all OBJECT messages, or a corresponding OBJECT_DROP message, have been delivered before closing the stream.
 
 ### SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -295,21 +290,21 @@ SUBSCRIBE Message {
   Track Name (b)
   Priority (i)
   Order (i)
-  Min Group (i)
-  Max Group (i)
+  Min Object (i)
+  Max Object (i)
 }
 ~~~
 
-**Priority**: The transmission priority of the subscription relative to all other active FETCHs and SUBSCRIBEs within the session. The publisher SHOULD transmit *lower* values first during congestion.
+**Priority**: The transmission priority of the subscription relative to all other active fetches and subscriptions.within the session. The publisher SHOULD transmit *lower* values first during congestion.
 
-**Order**: The transmission order of the groups within the subscription. The publisher SHOULD transmit groups based on their sequence number in default (0), ascending (1), or descending (2) order.
+**Order**: The transmission order of the groups within the subscription. The publisher SHOULD transmit objects based on their sequence number in default (0), ascending (1), or descending (2) order.
 
-**Min Group**: The minimum group sequence number plus 1. A value of 0 indicates the latest group as determined by the publisher.
+**Min Group**: The minimum object sequence number plus 1. A value of 0 indicates the latest object as determined by the publisher.
 
-**Max Group**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
+**Max Group**: The maximum object sequence number plus 1. A value of 0 indicates there is no maximum.
 
 If the subscription is accepted, the publisher will start transmitting groups for the requested track.
-Group streams are transmitted according to Priority and Order on a best effort manner, but are not guaranteed to arrive in order.
+Object streams are transmitted according to Priority and Order on a best effort manner, but are not guaranteed to arrive in any order.
 
 
 ### SUBSCRIBE_OK
@@ -318,17 +313,17 @@ Most of the message is informational and overlaps with INFO.
 
 ~~~
 SUBSCRIBE_OK Message {
-  Latest Group (i)
+  Latest Object (i)
   Default Priority (i)
   Default Order (i)
 }
 ~~~
 
-**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream. The latest group MAY be outside of specified Min/Max bounds.
+**Latest Object**: The latest object as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream. The latest object MAY be outside of specified Min/Max bounds.
 
 **Default Priority**: The default priority of this track within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher SHOULD transmit subscriptions with *lower* values first during congestion.
 
-**Default Order**: The default order of the groups within the subscription: none (0), ascending (1), or descending (2). The publisher MUST use the subscriber's order if it was specified.
+**Default Order**: The default order of the objects within the subscription: none (0), ascending (1), or descending (2). The publisher MUST use the subscriber's order if it was specified.
 
 
 ### SUBSCRIBE_UPDATE
@@ -338,34 +333,34 @@ The subscriber MAY modify a subscription with a SUBSCRIBE_UPDATE message.
 SUBSCRIBE_UPDATE Message {
   Priority (i)
   Order (i)
-  Min Group (i)
-  Max Group (i)
+  Min Object (i)
+  Max Object (i)
 }
 ~~~
 
-**Min Group**: The new minimum group sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
+**Min Object**: The new minimum object sequence, or 0 if there is no update. This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
 
-**Max Group**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
+**Max Object**: The new maximum object sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
 ### SUBSCRIBE_DROP
-The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve a group within the requested range.
+The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve an object within the requested range.
 
 ~~~
 SUBSCRIBE_DROP {
-  Start Group (i)
+  Start Oviect (i)
   Count (i)
   Error Code (i)
 }
 ~~~
 
-**Start Group**: The first group within the dropped range.
-**Count**: The number of additional groups after the first. The End Group can be computed as Start Group + Count.
+**Start Object**: The first object within the dropped range.
+**Count**: The number of additional groups after the first. The End Object can be computed as Start Object + Count.
 **Error Code**: An error code indicated by the application.
 
 
 ## Fetch Stream
-A subscriber can open a bidirectional Fetch stream to receive a single Group at a specified offset.
+A subscriber can open a bidirectional Fetch stream to receive a single Object at a specified offset.
 This is primarily used to recover from an abrupt stream termination.
 
 ~~~
@@ -380,7 +375,7 @@ FETCH Message {
 
 **Priority**: The priority of the group relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
 
-**Offset**: The requested offset in bytes *after* the GROUP header.
+**Offset**: The requested offset in bytes *after* the OBJECT header.
 
 The publisher replies on the stream with the contents.
 The stream may be reset with an error code by either endpoint.
@@ -407,17 +402,17 @@ The publisher replies with an INFO message.
 
 ~~~
 INFO Message {
-  Latest Group (i)
+  Latest Object (i)
   Default Priority (i)
   Default Order (i)
 }
 ~~~
 
-**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
+**Latest Object**: The latest object as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
 
 **Default Priority**: The producer's preferred priority of tracks within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher should transmit *lower* values first during congestion.
 
-**Default Order**: The producer's preferred order of the groups within the subscription: none (0), ascending (1), or descending (2).
+**Default Order**: The producer's preferred order of objects within the subscription: none (0), ascending (1), or descending (2).
 
 
 # Data Messages
@@ -429,8 +424,8 @@ Unidirectional streams are used for data... with the exception of FETCH for now.
 | 0x0  | GROUP     | Publisher |
 |------|-----------|-|
 
-## Group Stream
-The publisher creates Group Streams in response to a SUBSCRIBE.
+## Object Stream
+The publisher creates Object Streams in response to a SUBSCRIBE.
 
 A Group stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
 
