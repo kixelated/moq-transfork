@@ -1,5 +1,5 @@
 ---
-title: "Media over QUIC - TransFork"
+title: "Media over QUIC - Transfork"
 abbrev: "moqtf"
 category: info
 

@@ -1,6 +1,6 @@
-# Media over QUIC - TransFork
+# Media over QUIC - Transfork
 
-This is the working area for the individual Internet-Draft, "Media over QUIC - TransFork".
+This is the working area for the individual Internet-Draft, "Media over QUIC - Transfork".
 
 * [Editor's Copy](https://kixelated.github.io/moq-transfork/#go.draft-lcurley-moq-transfork.html)
 * [Datatracker Page](https://datatracker.ietf.org/doc/draft-lcurley-moq-transfork)
