@@ -68,7 +68,7 @@ This was always meant to be a compromise, allowing for experimentation without n
 The problem is that the stream mapping changes the properties of the object model and gives the same name to wildly different "objects".
 The application can further introducing gaps and reordering, exploding the number of permutations to support.
 We've managed to define so many dynamic properties that there is little concrete to build upon or reason about.
-It's very difficult to build a generic library and it's very difficult to use the transport as a developer.
+It's difficult to build a generic library, use the transport, and even design the procotol when every sentence ends with "only when using a stream per X".
 
 I think the transport needs to have clearly defined properties.
 A developer should be able to understand the properties of a "group" without caveats or undefined behavior, and it should not change based on the application.
