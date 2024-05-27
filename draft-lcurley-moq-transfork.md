@@ -168,7 +168,7 @@ This simplifies the protocol since an error code is often sufficient.
 
 Additionally, flow control can be used to limit the maximum number of bidirectional streams per direction, removing the need for something like `MAX_ANNOUNCE` or `MAX_SUBSCRIBE`.
 
-### No Datagrams
+### Datagram Support
 MoqTransport supports sending objects as QUIC datagrams via a track preference.
 This is often useful when the desired latency is below the RTT as it avoids some overhead.
 
@@ -176,17 +176,15 @@ The problem with QUIC datagrams is that they do a poor job catering to higher la
 When retransmissions are possible, such as when RTT is low and bandwidth is available, the one-and-done nature of datagrams results in a worse user experience.
 It might make sense to use datagrams for a live stream, but not if you want to serve those same objects for the VOD.
 
-The MoqTransfork alternative is to create a QUIC stream, write the data, and send a RESET_STREAM after the TTL (unless acknowledged).
-This is a few more bytes on the wire but gains flow control, drop notifications, and (potential) retransmissions.
+To fix this, datagrams in MoqTransfork are requested by the subscriber.
+The SUBSCRIBE message contains a `Datagrams Enabled` field that indicates the subscriber supports them and a publisher MAY transmit each GROUP via a datagram instead.
+This has some ramifications since it disables drop notifications, but saves a few bytes on the wire (~10 per GROUP) which is more efficient for audio use-cases.
 
-A future version of this draft may support QUIC datagrams.
-However, they would be separate in the Object Model and only applicable for unreliable live scenarios.
 
 ### Use-Cases
-The appendix contains a number of recommended ways to use MoqTransfork.
+While MoqTransfork is payload agnostic, the appendix contains a number of media use-cases and recommended approaches.
+These are by no means required or comprehensive, but are meant to help illustrate the careful layering of Media over QUIC.
 
-These are by no means required or comprehensive.
-MoqTransfork is media agnostic and can be used for any type of data or application.
 
 # Conventions and Definitions
 {::boilerplate bcp14-tagged}
@@ -227,7 +225,7 @@ Just like QUIC streams, a Group is delivered reliably in order with no gaps.
 There is a header containing any stream-level properties.
 
 Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
-When a GROUP is cancelled, the publisher transmits a SUBSCRIBE_DROP message to inform the subscriber.
+When a GROUP is cancelled, the publisher transmits a GROUP_DROP message to inform the subscriber.
 A subscriber may issue a FETCH to resume at a given byte offset.
 
 ### Frame
@@ -237,8 +235,8 @@ Framing is useful in some applications but can also be redundant or increase mem
 This may be removed in a future version of the draft.
 
 
-# Control Messages
-Bidirectional streams are used for control messages.
+# Control Streams
+Bidirectional streams are primarily used for control streams.
 
 Note that QUIC bidirectional streams have both a send and recv direction can be closed or reset (with an error code) independently.
 This is used to indicate completion or errors respectively.
@@ -327,14 +325,21 @@ A future draft will likely introduce a mechanism, used to discover broadcasts ma
 A subscriber can open a Subscribe Stream to request a named track within a broadcast.
 
 The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
-
 The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
 
-The publisher then transmits any matching groups within the track over a separate Group stream.
-If a GROUP is unavailable or reset, the publisher MUST reply with a SUBSCRIBE_DROP message.
+The subscriber chooses if Groups are transmitted via streams or datagrams in SUBSCRIBE.
+This is optional as datagrams have marginally lower overhead, but lack drop notifications.
 
-The subscription is active until either endpoint closes or resets their side of the stream.
-To ensure reliable delivery, an endpoint SHOULD wait until all GROUP messages, or a corresponding SUBSCRIBE_DROP message, have been delivered before closing the stream.
+If `Datagrams Enabled` is false, the publisher MUST transmit each Group within the indicated range as a Group Stream.
+If a Group Stream is reset, the publisher MUST transmit a cooresponding GROUP_DROP message on this Subscribe Stream.
+
+If `Datagrams Enabled` is true, the publisher MAY transmit each Group as a Group Datagram or Frame Datagram.
+The publisher MAY drop a Group for any reason and MUST NOT transmit a GROUP_DROP message.
+
+The subscription is active until the either endpoint closes or resets the stream.
+The subscriber SHOULD close the subscription when all GROUP and GROUP_DROP messages have been received.
+The publisher SHOULD close the subscription after all groups have been acknowledged or after a suitable timeout, like `Group Expires`.
+
 
 ### SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -345,6 +350,7 @@ SUBSCRIBE Message {
   Broadcast Name (b)
   Track Name (b)
   Track Priority (i)
+  Datagrams Enabled (i)
   Group Order (i)
   Group Expires (i)
   Group Min (i)
@@ -353,6 +359,8 @@ SUBSCRIBE Message {
 ~~~
 
 **Track Priority**: The transmission priority of the subscription relative to all other active subscriptions within the session. The publisher SHOULD transmit *lower* values first during congestion.
+
+**Datagram Enabled**: A boolean (0 or 1) indicating whether the subscriber supports datagrams. If true, the publisher MUST NOT transmit GROUP_DROP messages and MAY transmit any GROUP via a datagram instead of a stream.
 
 **Group Order**: The transmission order of the Groups within the subscription. The publisher SHOULD transmit groups based on their sequence number in default (0), ascending (1), or descending (2) order.
 
@@ -402,11 +410,11 @@ SUBSCRIBE_UPDATE Message {
 **Group Max**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-### SUBSCRIBE_DROP
-The publisher replies with a SUBSCRIBE_DROP message when it is unable to serve a group within the requested range.
+### GROUP_DROP
+The publisher replies with a GROUP_DROP message when it is unable to serve a group within the requested range.
 
 ~~~
-SUBSCRIBE_DROP {
+GROUP_DROP {
   Group Sequence Start (i)
   Group Sequence Count (i)
   Group Error Code (i)
@@ -492,7 +500,7 @@ An application MAY signal gaps with zero length Group or Frames.
 Both the publisher and subscriber MAY reset the stream at any time.
 The lowest priority streams should be reset first during congestion.
 
-When a Group stream is reset, the publisher MUST send a SUBSCRIBE_DROP message on the corresponding Subscribe stream.
+When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
 A future version of this draft may utilize reliable reset instead.
 
 ### GROUP Message
@@ -519,6 +527,27 @@ FRAME Message {
 
 **Payload**: An application specific payload.
 A MoqTransfork library MUST NOT inspect or modify the contents unless otherwise negotiated.
+
+# Datagrams
+Datagrams are optionally used for subscription data when `Datagrams Enabled` is set.
+
+|------|--------|-----------|
+| ID   | Type   | Role      |
+|-----:|:-------|-----------|
+| 0x0  | Group  | Publisher |
+|------|--------|-----------|
+| 0x1  | Frame  | Publisher |
+|------|--------|-----------|
+
+## Group Datagram
+A Group Datagram is byte identical to a Group Stream.
+There's a GROUP header followed by one or more FRAME messages.
+
+The primarily difference is that a Publisher MUST NOT transmit a GROUP_DROP message when dropping a Group Datagram.
+
+## Frame Datagram
+A Frame Datagram is similar to a Group Datagram, but saves 1-2 bytes by skipping the FRAME header when there's a single Frame.
+A Frame datagram contains a GROUP header directly followed by the frame payload.
 
 
 # Appendix: Media Use-Cases
@@ -620,7 +649,7 @@ However this is not currently not supported and FEC is left to the application.
 In MoqTransfork, each FEC frame is transmitted as a separate GROUP with a single FRAME.
 A real-time subscriber issues a `SUBSCRIBE` with an aggressive `Group Expires` value in the milliseconds range.
 The publisher will reset any Groups that have not been acknowledged within this time frame, potentially causing them to be lost.
-This does incur additional overhead in the form of RESET_STREAM and the corresponding SUBSCRIBE_DROP message.
+This does incur additional overhead in the form of RESET_STREAM and the corresponding GROUP_DROP message.
 
 However, the purpose of this design is to also support higher latency subscribers.
 A VOD or higher latency subscriber can issue a `SUBSCRIBE` with a conservative or no `Group Expires` values.

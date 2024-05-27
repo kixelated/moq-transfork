@@ -21,3 +21,4 @@ draft-lcurley-moq-transfork.xml
 package-lock.json
 report.xml
 !requirements.txt
+.DS_Store
