@@ -34,7 +34,7 @@ TODO Abstract
 
 This draft is based on moq-transport-03 [moqt].
 The concepts, motivations, and terminology are very similar on purpose.
-When in doubt, refer to the original draft using a stream per group.
+When in doubt, refer to the original draft.
 
 I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
@@ -46,143 +46,63 @@ The draft supports multiple different approaches, but it does so by leaving impo
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
-However, we've been arguing about how to use QUIC for years now and I don't expect that will change.
-I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support all of our use-cases.
+However, we've been arguing about some of these issues for years now and I don't expect that will change any time soon.
+I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support a documented set of use-cases.
 
+Here's a high level overview of the differences between MoqTransport and MoqTransfork:
 
-## Critique
-Before diving into the differences, I want to highlight the major issues with MoqTransport and why a fork is necessary.
+## Object Model
+The object model is an abstraction exposed to the application, outlining how the transport is used.
 
-### Object Model
-MoqTransport introduces the concept of Tracks, Groups, and Objects.
-While not explicitly stated, these implicitly map to media concepts:
+My biggest complaint with MoqTransport is that the properties of the object model change dynamically based on the publisher's "delivery preference".
+This creates a lot of complexity and edge cases, as the meaning of a track/group/object will subtly change at runtime.
 
-- **Track**: Audio/Video Track
-- **Group**: Video Group of Pictures
-- **Object**: Audio/Video Frame
+The MoqTransfork object model is static and maps directly to QUIC.
+MoqTransfork uses a QUIC stream or datagram per Group, depending on the subscription.
+This simplification is still able to support all of the use-cases; see the Appendix.
 
-But how do you deliver these over QUIC?
-Unfortunately, "it depends".
-
-The application is responsible for choosing the properties of the object model via the "delivery preference", determining how the object model is mapped to QUIC streams (or datagrams).
-The application is further responsible for determining how to prioritize/drop objects or introduce gaps.
-
-This was always meant to be a compromise, allowing for experimentation without nailing any of the protocol down.
-The problem is that the stream mapping changes the properties of the object model and gives the same name to wildly different "objects".
-The application can further introducing gaps and reordering, exploding the number of permutations to support.
-We've managed to define so many dynamic properties that there is little concrete to build upon or reason about.
-It's difficult to build a generic library, use the transport, and even design the procotol when every sentence ends with "only when using a stream per X".
-
-I think the transport needs to have clearly defined properties.
-A developer should be able to understand the properties of a "group" without caveats or undefined behavior, and it should not change based on the application.
-QUIC is a great example of this; a QUIC stream is always the same.
-
-### Non-Reference Frames
-While not explicitly stated, the complexity in MoqTransport stems almost entirely from a single use-case: the ability to drop individual non-reference frames.
-
-Video codecs involve complicated dependencies between frames/slices.
-One such case is a "non-reference frame", which can be considered as a leaf node in the dependency graph.
-The idea is that non-reference frame can be dropped during congestion and the decoder can skip it without artifacts.
-
-This idea sounds good on paper but it's a trap.
-Good encoders try to avoid non-reference frames because they fundamentally reduce the compression ratio.
-They are dead-end bits that can't be used for prediction.
-You can configure the encoder to produce non-reference frames but the net result is a ~10% increase in bitrate (or cooresponding drop in quality).
-This is not worth the ability to halve the frame rate during congestion and drop the bitrate by ~20%.
-
-But the real problem is the complexity required for this impractical use-case.
-QUIC streams are reliable/ordered by design, so in order to drop individual frames it becomes necessary to subdivide them into a stream per frame along with associated bookkeeping.
-The dependency graph is not serialized on the wire, so the viewer must implement a GoP reassembler based on the parsed codec dependency graph.
-Without full dependency information, a publisher or relay can inadvertently drop/expire reference frames causing an undecodable mess.
-The draft
-
-MoqTransfork makes the ability to drop frames in the middle of a Group a non-goal; you can only drop the tail of a Group.
-It instead relies instead on decode order within a GoP (aka DTS), a simplification that is optimal for most encodings, avoids artifacts, and is used by WebRTC, HLS/DASH, and RTMP alike.
-An advanced application that wants to drop non-reference frames can use multiple tracks to form layers via SVC or B-pyramids.
-See the appendix for more details about media mapping.
-
-### Use-Cases
-I believe most of the issues with MoqTransport stem from a lack of concrete use-cases.
-
-The reality is that we're designing an experimental protocol by committee.
-A new use-case arrives and we morph the existing protocol to support it, often by making properties optional or dynamic.
-This is especially problematic when there's no declared use-case, such as the recent addition of gaps within a group (draft-04).
-It's impossible to argue against a proposal when you can't suggest an alternative, and the cost is additional complexity
-
-We've intentionally defered the difficult use-cases until later drafts as cooperation is more important than perfection.
-But I believe that some use-cases are just incompatible with the current design.
-For example, the ability to priorize Alice's base layer over Bob's enhancement layer.
-
-I think a better approach is to collect all of the use-cases, cull the impractical ones, and then design the protocol around the rest.
-We should not be afraid to say "no" if it compromises the simplicity or clarity of the protocol.
-I've written a lengthy appendix to that effect and I hope it's useful even outside of this fork.
-
-
-## Differences
-Here's a high level overview of the differences between MoqTransport and MoqTransfork.
-
-### QUIC Mapping
-The MoqTransfork object model is static and maps directly to QUIC streams.
-
-The data within a QUIC stream is delivered reliably and in order until a STREAM_FIN, or abruptly truncated with a RESET_STREAM.
-Most importantly for live media, QUIC streams can be independently transmitted, prioritized, and reset.
-
-MoqTransfork builds on top of these properties since Group is a QUIC stream.
-Due to the nature of QUIC, most operations are done at the stream/group level.
-It's not possible to circumvent QUIC stream properties (ex. gaps in a stream) and attempting to do so defeats the purpose of using QUIC.
-
-The result is transport with well-defined properties.
-It's significantly simpler while still providing the necessary flexibility for a wide range of applications.
-
-### Subscriber Priority
+## Subscriber Priority
 As the original proponent of producer choosen priorities (send order), I'm ashamed to admit that I was wrong.
 Reality is more naunced; both the subscriber and publisher need to work together.
 
 MoqTransfork delegates the priority decision for the last mile to the subscriber.
-This is done via a `priority` (between tracks) and `order` (within a track) field within `SUBSCRIBE`.
+This is done via a `Track Priority` and `Group Order` field within `SUBSCRIBE`.
+
 If there's a single viewer, then this priority can be used all the way to origin.
+However when there are multiple conflicting viewers, then a relay should use the producer's preference during conflicts as advertised in `INFO`.
 
-However, when relays and multiple viewers are involved, there needs to be some form of a tiebreaker.
-The publisher indicates the default value via `SUBSCRIBE_OK` or `INFO` and the relay should use it during conflicts.
-The result is that the last hop uses the viewer's preference, but upstream hops could instead use the producer's preference.
+## Control Streams
+At the core of a transport are control messages.
 
-### Byte Offsets
-When a connection or subscription is severed, it's desirable to resume where it left off.
-
-MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
-This is an okay approach, however it can result in redownloading objects (ex. incomplete keyframes) especially when groups are delivered out of order.
-Unfortunately it causes a fragmented cache, as a relay needs to parse incoming streams, split them at object boundaries, and operate independently on each object.
-
-MoqTransfork instead utilizes FETCH to serve incomplete Groups starting at a byte offset.
-QUIC streams are tail dropped when reset so there's no need for a more complex mechanism.
-This subtle change dramatically simplifies relays, allowing them to stream from a cache at a byte offset instead of a parsed marker (object ID).
-An advanced relay can now even forward STREAM chunks out of order which was not always possible with Object IDs.
-
-### Control Streams
 MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
 There's also just a lot of messages for state transitions such as `UNSUBSCRIBE`, `SUBSCRIBE_ERROR`, `SUBSCRIBE_DONE`, etc.
 
 MoqTransfork continues the trend of leveraging QUIC with a separate control stream per transaction.
-There are no more messages that start with `UN` or end with `_DONE`, `_ERROR`, `_RESET`, etc; the stream state machine is used instead.
-This simplifies the protocol since an error code is often sufficient.
+The stream is instead closed or reset with an error code.
+This removes the need for any messages that start with `UN` or end with `_DONE`, `_ERROR`, `_RESET`, etc.
 
-Additionally, flow control can be used to limit the maximum number of bidirectional streams per direction, removing the need for something like `MAX_ANNOUNCE` or `MAX_SUBSCRIBE`.
+## Byte Offsets
+When a connection or subscription is severed, it's often desirable to resume where it left off.
 
-### Datagram Support
-MoqTransport supports sending objects as QUIC datagrams via a track preference.
-This is often useful when the desired latency is below the RTT as it avoids some overhead.
+MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
+This is an okay approach, however it results in redownloading partial objects and a fragmented cache at parsed boundaries.
 
-The problem with QUIC datagrams is that they do a poor job catering to higher latency subscribers.
-When retransmissions are possible, such as when RTT is low and bandwidth is available, the one-and-done nature of datagrams results in a worse user experience.
-It might make sense to use datagrams for a live stream, but not if you want to serve those same objects for the VOD.
+MoqTransfork instead utilizes FETCH to serve incomplete Groups starting at a byte offset.
+QUIC streams are tail dropped when reset so there's no need for a more complex mechanism.
+It also allows an advanced relay to forward STREAM frames directly.
 
-To fix this, datagrams in MoqTransfork are requested by the subscriber.
-The SUBSCRIBE message contains a `Datagrams Enabled` field that indicates the subscriber supports them and a publisher MAY transmit each GROUP via a datagram instead.
-This has some ramifications since it disables drop notifications, but saves a few bytes on the wire (~10 per GROUP) which is more efficient for audio use-cases.
+## Datagram Support
+Datagrams are useful when payloads are small, overhead is important, and the desired latency is below the RTT.
 
+MoqTransport supports sending objects as QUIC datagrams via a publisher track preference.
+This works for real-time viewers but results in a poor experience for higher latency viewers.
+Datagrams also disable drop notifications which are required for reliable playback.
 
-### Use-Cases
-While MoqTransfork is payload agnostic, the appendix contains a number of media use-cases and recommended approaches.
+MoqTransfork instead lets the subscriber indicate if it wants to receive datagrams for a subscription.
+If so, Groups may be silently dropped for whatever reason, but it saves a few bytes on the wire (~10 per Group) which is desirable for audio use-cases.
+
+## Use-Cases
+The appendix contains a number of media use-cases and recommended approaches.
 These are by no means required or comprehensive, but are meant to help illustrate the careful layering of Media over QUIC.
 
 
@@ -191,7 +111,7 @@ These are by no means required or comprehensive, but are meant to help illustrat
 
 
 # Concepts
-Many of the concepts are borrowed from MoqTransport so I'm not going to rehash them here.
+Many of the concepts are borrowed from MoqTransport so I'm not going to fully rehash them here.
 A future draft will.
 
 ## Object Model
@@ -199,7 +119,7 @@ The MoqTransfork object model consists of:
 
 - **Broadcast**: A collection of Tracks from a single producer.
 - **Track**: A series of Groups within a Broadcast.
-- **Group**: A series of Frames within a Track, served via a QUIC stream.
+- **Group**: A series of Frames within a Track, served in order.
 - **Frame**: A sized payload of bytes within a Group.
 
 ### Broadcast
@@ -214,25 +134,24 @@ Each subscription is scoped to a single track and starts/ends at a Group boundar
 The subscriber chooses the priority/order of each track, dictating which track arrives first during congestion.
 
 Each track has a unique name within the broadcast.
-There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
-For example, a `catalog` track that lists all other tracks.
 
-An application MAY use multiple tracks to form layers via SVC or B-pyramids.
-It then becomes possible to select and prioritize layers based on the subscriber's preference.
+There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
+For example, a `catalog` track that lists all other tracks and their association.
+
 
 ### Group
-Just like QUIC streams, a Group is delivered reliably in order with no gaps.
-There is a header containing any stream-level properties.
+A Group is an ordered stream of bytes within a Track.
+It has a small header containing a sequence number within the track and an expiration time.
 
-Both the publisher and subscriber can cancel a GROUP stream at any point with QUIC's `RESET_STREAM` or `STOP_SENDING` respectively.
-When a GROUP is cancelled, the publisher transmits a GROUP_DROP message to inform the subscriber.
-A subscriber may issue a FETCH to resume at a given byte offset.
+A Group may be served via a QUIC stream or datagram, depending on the subscription.
+If the Group is dropped for any reason, a subscriber may issue a FETCH to resume at a given byte offset.
 
 ### Frame
 Frames currently only provides framing, hence the name.
 
 Framing is useful in some applications but can also be redundant or increase memory usage, as the size must be known upfront.
 This will be removed in a future version of the draft, delegated to a higher layer.
+
 
 # Flow
 This section outlines the flow of messages within a MoqTransfork session.
@@ -631,12 +550,21 @@ It also enables layers to be prioritized within the layer application, for examp
 The application is responsible for determining the relationship between layers, since they're unrelated tracks as MoqTransport is concerned.
 The application could use a catalog to advertise the layers and how to synchronize them, for example based on the Group Sequence.
 
-### Dependency Graph
-As mentioned, video encoding can involve a tangled web of dependencies between frames to maximize compression.
-In theory this could be serialized and transmitted over the network.
+### Non-Reference Frames
+While not explicitly stated, I believe the complexity in MoqTransport stems almost entirely from a single use-case: the ability to drop individual non-reference frames in the middle of a group.
 
-However, this is a non-goal for MoqTransfork.
-The complexity is not warranted nor are the benefits tangible.
+A non-reference frame is a leaf node in the dependency graph, as it's not used as a reference by any other frame.
+In theory, non-reference frames can be dropped during congestion without affecting the decodability of other frames.
+This idea sounds good on paper but it's a trap.
+
+Good encoders try to avoid non-reference frames because they fundamentally reduce the compression ratio.
+They are dead-end bits that can't be used for prediction.
+You can configure the encoder to produce non-reference frames but the net result is a ~10% increase in bitrate (or cooresponding drop in quality).
+This is not worth the ability to halve the frame rate during congestion and drop the bitrate by only ~20%.
+
+This is an explicit non-goal for MoqTransfork.
+The benefits are marginal to non-existant and the complexity introduced is high.
+
 
 ## Audio
 Unlike video, audio is simple and yet has perhaps more potential for optimization.
