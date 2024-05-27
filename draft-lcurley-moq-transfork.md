@@ -232,21 +232,32 @@ A subscriber may issue a FETCH to resume at a given byte offset.
 Frames currently only provides framing, hence the name.
 
 Framing is useful in some applications but can also be redundant or increase memory usage, as the size must be known upfront.
-This may be removed in a future version of the draft.
+This will be removed in a future version of the draft, delegated to a higher layer.
 
+# Flow
+This section outlines the flow of messages within a MoqTransfork session.
+See the section for Messages section for the specific encoding.
 
-# Control Streams
+## Establishment
+MoqTransfork runs on top of either WebTransport or QUIC.
+
+After a connection is established, the endpoints perform a MoqTransfork handshake to negotiate the version and other parameters.
+The client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+
+TODO copy this from MoqTransport.
+
+## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
 
 Note that QUIC bidirectional streams have both a send and recv direction can be closed or reset (with an error code) independently.
 This is used to indicate completion or errors respectively.
 
-The first varint of each stream indicates the type.
+The first varint of each stream indicates the Stream Type.
 Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
 A stream type MUST NOT contain messages defined for other stream types unless otherwise specified (ex. INFO).
 
 |------|-----------|------------|
-| ID   | Stream    | Role       |
+| ID   | Type      | Role       |
 |-----:|:----------|------------|
 | 0x0  | Session   | Client     |
 |------|-----------|------------|
@@ -254,22 +265,123 @@ A stream type MUST NOT contain messages defined for other stream types unless ot
 |------|-----------|------------|
 | 0x2  | Subscribe | Subscriber |
 |------|-----------|------------|
-| 0x3  | Fetch     | Subscriber |
+| 0x3  | Datagram  | Subscriber |
 |------|-----------|------------|
-| 0x4  | Info      | Subscriber |
+| 0x4  | Fetch     | Subscriber |
+|------|-----------|------------|
+| 0x5  | Info      | Subscriber |
 |------|-----------|------------|
 
 
-## Session Stream
+### Session
 The Session stream contains all messages that are session level.
-The client MUST open only one Session stream immediately after establishing the QUIC/WebTransport session.
 
-The client sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
-The session remains active until the Session stream is closed or reset by either endpoint.
+The client MUST open the one Session Stream immediately after establishing the QUIC/WebTransport session.
+The client sneds a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+Afterwards, both endpoints MAY send SESSION_INFO messages containing updated information about the session.
 
-Both endpoints MAY periodically send a SESSION_INFO message containing information about the session.
+The session remains active until the Session Stream is closed or reset by either endpoint.
 
-### SESSION_CLIENT
+
+### Announce
+A publisher MAY open an Announce Stream to advertise a broadcast.
+This is optional and the subscriber MAY determine the broadcast name out-of-band.
+
+The publisher MUST start the stream with an ANNOUNCE message.
+The subscriber MUST reply with an ANNOUNCE_OK message or reset the stream.
+The announcement is active until the stream is closed or reset by either endpoint.
+
+There is currently no expectation that a relay will forward an ANNOUNCE message downstream.
+A future draft may introduce a mechanism to discover broadcasts matching a prefix.
+
+### Subscribe
+A subscriber MAY open a Subscribe Stream to request a named track within a broadcast.
+The publisher will start transmitting Group matching the criteria via QUIC streams.
+
+The subscriber MUST start the stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
+The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages.
+
+The SUBSCRIBE message contains information about the track and an indicated range.
+The publisher MUST transmit a GROUP or GROUP_DROP message for each Group within the range.
+
+The subscription is active until the either endpoint closes or resets the stream.
+The subscriber MUST close the subscription when all GROUP and GROUP_DROP messages have been received.
+The publisher MAY close the subscription after all groups have been acknowledged.
+
+### Datagram
+A subcriber MAY open a Datagram Stream (TODO name) to request a named track within a broadcast.
+The publisher will start transmitting any Groups matching the criteria via QUIC datagrams.
+
+The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
+The publisher MUST reply with an INFO message and nothing else.
+
+The publisher MAY transmit each Group as a Group Datagram or Frame Datagram.
+The publisher MAY drop a Group for any reason, including congestion and MTU constraints.
+
+The subscription is active until the either endpoint closes or resets the stream.
+The publisher MUST close the subscription after transmitting all Group/Frame Datagrams.
+The subscriber MAY close the subscription when all Group/Frame Datagrams have been received.
+
+## Info
+The subscriber MAY open an Info Stream to request information about a track.
+This is not necessary for a subscription, as SUBSCRIBE will trigger an INFO reply.
+
+The subscriber MUST start the stream with a INFO_REQUEST message.
+The publisher MUST reply with an INFO message or reset the stream.
+Both endpoints MUST close the stream afterwards.
+
+## Fetch
+A subscriber MAY open a Fetch Stream to receive a single Group at a specified offset.
+This is primarily used to recover from an abrupt stream termination, causing the truncation of a Group.
+
+The subscriber MUST start the stream with a FETCH message.
+The publisher MUST reply with a GROUP message followed by the Group payload starting at the specified offset.
+The fetch is active until both endpoints close the stream, or either endpoint resets the stream.
+
+
+## Unidirectional
+Unidirectional streams are used for subscription data.
+
+|------|--------|-----------|
+| ID   | Stream | Role      |
+|-----:|:-------|-----------|
+| 0x0  | Group  | Publisher |
+|------|--------|-----------|
+
+### Group
+The publisher creates Group Streams in response to a Subscribe Stream.
+
+A Group Stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
+An application MAY use zero length Group or Frames to signal gaps.
+
+Both the publisher and subscriber MAY reset the stream at any time.
+When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
+A future version of this draft may utilize reliable reset instead.
+
+
+## Datagrams
+Datagrams are used for subscription data.
+
+|------|--------|-----------|
+| ID   | Type   | Role      |
+|-----:|:-------|-----------|
+| 0x0  | Group  | Publisher |
+|------|--------|-----------|
+| 0x1  | Frame  | Publisher |
+|------|--------|-----------|
+
+### Group Datagram
+A Group Datagram consists of a GROUP message followed by one or more FRAME messages.
+
+### Frame Datagram
+A Frame Datagram consists of a GROUP message followed by the Frame Payload.
+This saves 1-2 bytes by skipping the FRAME header when there's a single Frame.
+
+
+# Messages
+This section covers the encoding of each message.
+
+## SESSION_CLIENT
 TODO copy from moq-transport.
 
 This contains:
@@ -277,7 +389,7 @@ This contains:
 - the client's role
 - any extensions
 
-### SESSION_SERVER
+## SESSION_SERVER
 TODO copy from moq-transport
 
 This contains:
@@ -285,7 +397,7 @@ This contains:
 - the server's role
 - any extensions
 
-### SESSION_INFO
+## SESSION_INFO
 
 ~~~
 SESSION_INFO Message {
@@ -298,8 +410,9 @@ SESSION_INFO Message {
 Sender-side bitrate estimates are important when application-limited, which is common for live media.
 A publisher SHOULD transmit a new SESSION_INFO message when the bitrate changes significantly.
 
-## Announce Stream
-A publisher can open Announce Streams to advertise a broadcast.
+
+## ANNOUNCE
+The publisher sends an ANNOUNCE message to advertise a broadcast.
 
 ~~~
 ANNOUNCE Message {
@@ -307,10 +420,8 @@ ANNOUNCE Message {
 }
 ~~~
 
-The announcement is active until the stream is closed or reset by either endpoint.
-Notably, a subscriber can close the send side of the stream to indicate that no error occurred, but it's not interested.
-
-The subscriber MUST reply with an ANNOUNCE_OK message or close the stream.
+## ANNOUNCE_OK
+The subscriber replies to an ANNOUNCE with an ANNOUNCE_OK message.
 
 ~~~
 ANNOUNCE_OK Message {
@@ -318,30 +429,7 @@ ANNOUNCE_OK Message {
 }
 ~~~
 
-There is currently no expectation that a relay will forward an ANNOUNCE message downstream.
-A future draft will likely introduce a mechanism, used to discover broadcasts matching a prefix.
-
-## Subscribe Stream
-A subscriber can open a Subscribe Stream to request a named track within a broadcast.
-
-The subscriber MUST start the stream with a SUBSCRIBE message and MAY follow with subsequent SUBSCRIBE_UPDATE messages.
-The publisher MUST reply with a SUBSCRIBE_OK, or reset the stream to reject the subscription.
-
-The subscriber chooses if Groups are transmitted via streams or datagrams in SUBSCRIBE.
-This is optional as datagrams have marginally lower overhead, but lack drop notifications.
-
-If `Datagrams Enabled` is false, the publisher MUST transmit each Group within the indicated range as a Group Stream.
-If a Group Stream is reset, the publisher MUST transmit a cooresponding GROUP_DROP message on this Subscribe Stream.
-
-If `Datagrams Enabled` is true, the publisher MAY transmit each Group as a Group Datagram or Frame Datagram.
-The publisher MAY drop a Group for any reason and MUST NOT transmit a GROUP_DROP message.
-
-The subscription is active until the either endpoint closes or resets the stream.
-The subscriber SHOULD close the subscription when all GROUP and GROUP_DROP messages have been received.
-The publisher SHOULD close the subscription after all groups have been acknowledged or after a suitable timeout, like `Group Expires`.
-
-
-### SUBSCRIBE
+## SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
 
 ~~~
@@ -370,31 +458,9 @@ SUBSCRIBE Message {
 
 **Group Max**: The maximum group sequence number plus 1. A value of 0 indicates there is no maximum.
 
-If the subscription is accepted, the publisher will start transmitting groups for the requested track.
-Group streams are transmitted according to Track Priority and Group Order on a best effort manner, but are not guaranteed to arrive in any order.
 
-
-### SUBSCRIBE_OK
-The publisher acknowledges the SUBSCRIBE with SUBSCRIBE_OK message.
-Most of the message is informational and overlaps with INFO.
-
-~~~
-SUBSCRIBE_OK Message {
-  Latest Group (i)
-  Default Track Priority (i)
-  Default Group Order (i)
-}
-~~~
-
-**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream. The latest group MAY be outside of specified Min/Max bounds.
-
-**Default Track Priority**: The default priority of this track within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher SHOULD transmit subscriptions with *lower* values first during congestion.
-
-**Default Group Order**: The default order of the groups within the subscription: none (0), ascending (1), or descending (2). The publisher MUST use the subscriber's order if it was specified.
-
-
-### SUBSCRIBE_UPDATE
-The subscriber MAY modify a subscription with a SUBSCRIBE_UPDATE message.
+## SUBSCRIBE_UPDATE
+The subscriber can modify a subscription with a SUBSCRIBE_UPDATE message.
 
 ~~~
 SUBSCRIBE_UPDATE Message {
@@ -410,27 +476,37 @@ SUBSCRIBE_UPDATE Message {
 **Group Max**: The new maximum group sequence, or 0 if there is no update. This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
 
-### GROUP_DROP
-The publisher replies with a GROUP_DROP message when it is unable to serve a group within the requested range.
+## INFO
+The INFO message contains the current information about a track.
 
 ~~~
-GROUP_DROP {
-  Group Sequence Start (i)
-  Group Sequence Count (i)
-  Group Error Code (i)
+INFO Message {
+  Latest Group (i)
+  Default Track Priority (i)
+  Default Group Order (i)
 }
 ~~~
 
-**Group Sequence Start**: The sequence number for the first group within the dropped range.
+**Latest Group**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream
 
-**Group Sequence Count**: The number of additional groups after the first. This value is 0 when only one group is dropped.
+**Default Track Priority**: The default priority of this track within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher SHOULD transmit subscriptions with *lower* values first during congestion.
 
-**Error Code**: An error code indicated by the application.
+**Default Group Order**: The default order of the groups within the subscription: none (0), ascending (1), or descending (2).
 
 
-## Fetch Stream
-A subscriber can open a bidirectional Fetch stream to receive a single Group at a specified offset.
-This is primarily used to recover from an abrupt stream termination.
+## INFO_REQUEST
+The INFO_REQUEST message is used to request an INFO response.
+
+~~~
+INFO_REQUEST Message {
+  Broadcast Name (b)
+  Track Name (b)
+}
+~~~
+
+
+## FETCH
+The subscriber can request a byte offset within a Group with a FETCH message.
 
 ~~~
 FETCH Message {
@@ -444,67 +520,11 @@ FETCH Message {
 
 **Track Priority**: The priority of the group relative to all other FETCH and SUBSCRIBE requests within the session. The publisher should transmit *lower* values first during congestion.
 
-**Group Offset**: The requested offset in bytes *after* the GROUP header.
-
-The publisher replies on the stream with the contents.
-The stream may be reset with an error code by either endpoint.
+**Group Offset**: The requested offset in bytes *after* the GROUP message.
 
 
-## Info Stream
-The subscriber may request information about a track.
-
-The subscriber encodes a INFO_REQUEST message and the publisher replies with an INFO message.
-There MUST NOT be any subsequent messages on the stream.
-
-### INFO_REQUEST
-~~~
-INFO_REQUEST Message {
-  Broadcast Name (b)
-  Track Name (b)
-}
-~~~
-
-### INFO Message
-The publisher replies with an INFO message.
-
-~~~
-INFO Message {
-  Latest Group Sequence (i)
-  Default Track Priority (i)
-  Default Group Order (i)
-}
-~~~
-
-**Latest Group Sequence**: The latest group as currently known by the publisher. A relay without an active subscription SHOULD forward this request upstream.
-
-**Default Track Priority**: The producer's preferred priority of tracks within the broadcast. Note that this is different than SUBSCRIBE, which is scoped to a session instead. The publisher should transmit *lower* values first during congestion.
-
-**Default Group Order**: The producer's preferred order of groups within the subscription: none (0), ascending (1), or descending (2).
-
-
-# Data Messages
-Unidirectional streams are used for subscription data.
-
-|------|--------|-----------|
-| ID   | Stream | Role      |
-|-----:|:-------|-----------|
-| 0x0  | Group  | Publisher |
-|------|--------|-----------|
-
-## Group Stream
-The publisher creates Group Streams in response to a SUBSCRIBE.
-
-A Group stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
-An application MAY signal gaps with zero length Group or Frames.
-
-Both the publisher and subscriber MAY reset the stream at any time.
-The lowest priority streams should be reset first during congestion.
-
-When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
-A future version of this draft may utilize reliable reset instead.
-
-### GROUP Message
-The GROUP message contains information about the Group, as well as a reference to the subscription being served.
+## GROUP Message
+The GROUP message contains information about a Group, as well as a reference to the subscription being served.
 
 ~~~
 GROUP Message {
@@ -514,9 +534,29 @@ GROUP Message {
 }
 ~~~
 
-**Group Expires**: The duration in milliseconds *after completion* that a group is considered fresh. The publisher SHOULD reset a GROUP stream after this time has elapsed, including any time spent cached. A value of 0 means there is no explicit expiration.
+**Group Expires**: A duration in milliseconds. The group has expired if this duration has elapsed after group has finished, including any time spent cached. The publisher SHOULD NOT transmit expired groups and SHOULD reset any expired Group Streams.
 
-### FRAME Message
+
+## GROUP_DROP
+The publisher transmits a GROUP_DROP message when it is unable to serve a group for a SUBSCRIBE.
+
+~~~
+GROUP_DROP {
+  Group Sequence Start (i)
+  Group Sequence Count (i)
+  Group Error Code (i)
+}
+~~~
+
+
+**Group Sequence Start**: The sequence number for the first group within the dropped range.
+
+**Group Sequence Count**: The number of additional groups after the first. This value is 0 when only one group is dropped.
+
+**Error Code**: An error code indicated by the application.
+
+
+## FRAME Message
 The FRAME message consists of a length followed by that many bytes.
 
 ~~~
@@ -527,27 +567,6 @@ FRAME Message {
 
 **Payload**: An application specific payload.
 A MoqTransfork library MUST NOT inspect or modify the contents unless otherwise negotiated.
-
-# Datagrams
-Datagrams are optionally used for subscription data when `Datagrams Enabled` is set.
-
-|------|--------|-----------|
-| ID   | Type   | Role      |
-|-----:|:-------|-----------|
-| 0x0  | Group  | Publisher |
-|------|--------|-----------|
-| 0x1  | Frame  | Publisher |
-|------|--------|-----------|
-
-## Group Datagram
-A Group Datagram is byte identical to a Group Stream.
-There's a GROUP header followed by one or more FRAME messages.
-
-The primarily difference is that a Publisher MUST NOT transmit a GROUP_DROP message when dropping a Group Datagram.
-
-## Frame Datagram
-A Frame Datagram is similar to a Group Datagram, but saves 1-2 bytes by skipping the FRAME header when there's a single Frame.
-A Frame datagram contains a GROUP header directly followed by the frame payload.
 
 
 # Appendix: Media Use-Cases
