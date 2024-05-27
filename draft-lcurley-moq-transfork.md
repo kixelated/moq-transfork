@@ -21,7 +21,6 @@ normative:
   moqt: I-D.ietf-moq-transport
 
 informative:
-#  catalog: I-D.wilaw-moq-catalogformat
 
 --- abstract
 
@@ -658,7 +657,7 @@ There's a number of non-media use cases that can be served by MoqTransfork.
 Originally part of the transport itself, the catalog is a list of all tracks within a broadcast.
 It's since been delegated to the application and is now just another track with a well-known name.
 
-The proposed MoQ catalog format [catalog] supports live updates.
+The proposed MoQ catalog format supports live updates.
 It does this by encoding a base JSON blob and then applying JSON patches over time.
 If the number of deltas becomes too large, the producer can start over with a new base JSON blob.
 
