@@ -65,11 +65,11 @@ A Group is always an ordered set of bytes, although it may be served via a QUIC 
 This simplification is able to support all of the documented use-cases; see the Appendix.
 
 ## Prioritization
-Prioritization is important for low-latency, ensuring the publisher sends the most important media first during congetsion.
+Prioritization is important for low-latency, ensuring the publisher sends the most important media first during congestion.
 
-MoqTransport uses producer choosen priorities via send order.
+MoqTransport uses producer chosen priorities via send order.
 As the original proponent of this approach, I'm ashamed to admit that I was wrong.
-Reality is more naunced; both the subscriber and publisher need to work together.
+Reality is more nuanced; both the subscriber and publisher need to work together.
 
 MoqTransfork instead delegates the priority decision for the last mile to the subscriber.
 This is done via a `Track Priority` and `Group Order` field within `SUBSCRIBE`.
@@ -214,7 +214,7 @@ Streams may only be created by the indicated role, otherwise the session MUST be
 The Session stream contains all messages that are session level.
 
 The client MUST open a single Session Stream immediately after establishing the QUIC/WebTransport session.
-The client sneds a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+The client sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
 
 Afterwards, both endpoints MAY send SESSION_INFO messages containing information about the session.
 The endpoint SHOULD send an updated SESSION_INFO message, such as after a significant change in the session bitrate.
@@ -578,7 +578,7 @@ This truncates the Group and a subscriber can issue a FETCH if it wants to resum
 ### Layers
 An advanced application can subdivide a GoP into layers.
 
-The most comprehesive way to do this is with Scalable Video Coding (SVC).
+The most comprehensive way to do this is with Scalable Video Coding (SVC).
 There is a base layer and one or more enhancement layers that depend on lower layers.
 For example, a 4K stream could be broken into 4K, 1080p, and 360p (base) layers.
 However, SVC has limited support and is complex to encode.
@@ -590,7 +590,7 @@ This is effectively a custom SVC scheme, however it's limited to time (can't cha
 
 The purpose of these layers is to support degrading the quality of the broadcast.
 A subscriber could limit bandwidth usage by choose to only receive the base layer or a subset of the enhancements layers.
-During congestion, the base layer can be priortizied while the enhancement layers can be deprioritized/dropped.
+During congestion, the base layer can be prioritized while the enhancement layers can be deprioritized/dropped.
 However, the cost is a small increase in bitrate (10%) as limiting potential references can only hurt the compression ratio.
 
 When using MoqTransfork, each layer is delivered as a separate Track.
@@ -612,7 +612,7 @@ You can configure the encoder to produce non-reference frames but the result is 
 But the main problem is the complexity introduced into the transport, as each frame must be transmitted as an individual QUIC stream based on a dependency graph that is not available to relays, and difficult for both broadcasters and viewers to parse.
 
 The ability to drop individual non-reference frames in the middle of a group is an explicit non-goal for MoqTransfork.
-An alternative is to put them into a seperate layer, such that the tail of the layer could be dropped.
+An alternative is to put them into a separate layer, such that the tail of the layer could be dropped.
 
 
 ## Audio
@@ -690,8 +690,8 @@ However, this only applies to the first hop and won't be applicable when relays 
 ## Latency
 One explicit goal of MoqTransfork is to support multiple latency targets.
 
-This is accomplished by using the same Tracks and Group for all viewers, but sliiightly changing the behavior based on the subscription.
-This is driven by the subscriber, allowing them to choose the tradeoff between latency and reliability.
+This is accomplished by using the same Tracks and Group for all viewers, but slightly changing the behavior based on the subscription.
+This is driven by the subscriber, allowing them to choose the trade-off between latency and reliability.
 This may be done on the fly via SUBSCRIBE_UPDATE, for example if a high-latency viewer wishes to join the stage and suddenly needs real-time latency.
 
 The below examples assume one audio and one video track.
@@ -702,7 +702,7 @@ Real-time latency is accomplished by prioritizing the most important media durin
 
 This is slightly different from other media protocols which instead opt to drop packets.
 The end result is similar, but prioritization means utilizing all available bandwidth as determined by the congestion controller.
-A subscriber or publisher can reset groups to avoid wasiting bandwidth on old data.
+A subscriber or publisher can reset groups to avoid wasting bandwidth on old data.
 
 A real-time viewer could issue:
 
@@ -791,7 +791,7 @@ A DVR player does the same thing but can automatically support joining the live 
 It's perfectly valid to specify a `end` in the future and it will behave like reliable live viewer once it reaches the live playhead.
 
 Alternatively, a DVR player could prefetch the live playhead by issuing a parallel SUBSCRIBE at a lower priority.
-This would allow playback to immediately continue after clicking the "Go Live" button, cancelling or deprioritizing the VOD subscription.
+This would allow playback to immediately continue after clicking the "Go Live" button, canceling or deprioritizing the VOD subscription.
 
 ~~~
 SUBSCRIBE track=video priority=0 order=ASC start=123 end=134
@@ -886,7 +886,7 @@ SUBSCRIBE track=1080p priority=1 order=DESC
 SUBSCRIBE track=4k    priority=2 order=DESC
 ~~~
 
-During congestion, the 4k enhancement layer will be deprioritized followed by the 1080p ehancement layer.
+During congestion, the 4k enhancement layer will be deprioritized followed by the 1080p enhancement layer.
 This is a more efficient use of bandwidth than ABR, but it requires more complex encoding.
 
 
