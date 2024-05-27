@@ -30,8 +30,11 @@ TODO Abstract
 
 --- middle
 
-# Fork
+# Conventions and Definitions
+{::boilerplate bcp14-tagged}
 
+
+# Fork
 This draft is based on moq-transport-03 [moqt].
 The concepts, motivations, and terminology are very similar on purpose.
 When in doubt, refer to the original draft.
@@ -113,9 +116,6 @@ This has caused unnecessary or incomplete features, as it's impossible to argue 
 MoqTransfork instead includes an Appendix contains a number of media use-cases and recommended approaches that are by no means required or comprehensive.
 This also serves to illustrate the careful layering of Media over QUIC which has otherwise not been documented.
 
-
-# Conventions and Definitions
-{::boilerplate bcp14-tagged}
 
 
 # Concepts
@@ -570,8 +570,8 @@ Each Group is delivered in decode order ensuring that all frames are decodable (
 
 A subscriber can choose the Group Order based on the desired user experience:
 
-- `SUBSCRIBE group_order=DESC`: Transmits new Groups first to allow skipping, intended for low-latency live streams.
-- `SUBSCRIBE group_order=ASC`: Transmits old Groups first to avoid skipping, intended for VOD and reliable live streams.
+- `SUBSCRIBE order=DESC`: Transmits new Groups first to allow skipping, intended for low-latency live streams.
+- `SUBSCRIBE order=ASC`: Transmits old Groups first to avoid skipping, intended for VOD and reliable live streams.
 
 A publisher or subscriber can skip the remainder of a Group by resetting a Group Stream or by issuing a SUBSCRIBE_UPDATE.
 This truncates the Group and a subscriber can issue a FETCH if it wants to resume at a byte offset.
@@ -708,8 +708,8 @@ A subscriber or publisher can reset groups to avoid wasiting bandwidth on old da
 A real-time viewer could issue:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=DESC group_expires=100ms
-SUBSCRIBE track=video track_priority=1 group_order=DESC group_expires=100ms
+SUBSCRIBE track=audio priority=0 order=DESC group_expires=100ms
+SUBSCRIBE track=video priority=1 order=DESC group_expires=100ms
 ~~~
 
 In this example, audio is higher priority than video, and newer groups are higher priority than older groups.
@@ -742,8 +742,8 @@ This is useful for broadcasts where latency is important but so is picture quali
 An unreliable live viewer could issue:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=ASC
-SUBSCRIBE track=video track_priority=1 group_order=DESC group_expires=3s
+SUBSCRIBE track=audio priority=0 order=ASC
+SUBSCRIBE track=video priority=1 order=DESC group_expires=3s
 ~~~
 
 This example is different from the real-time one in that audio is fully reliable and delivered in order.
@@ -762,8 +762,8 @@ A good example is a sports game where you want to see every frame.
 A reliable live viewer could issue:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=ASC
-SUBSCRIBE track=video track_priority=0 group_order=ASC
+SUBSCRIBE track=audio priority=0 order=ASC
+SUBSCRIBE track=video priority=0 order=ASC
 ~~~
 
 This will deliver both audio and video in order, and with the same priority.
@@ -777,26 +777,26 @@ MoqTransfork can serve this use-case too, don't worry.
 A VOD viewer could issue:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=ASC group_start=345 group_end=396
-SUBSCRIBE track=video track_priority=0 group_order=ASC group_start=123 group_end=134
+SUBSCRIBE track=audio priority=0 order=ASC start=345 end=396
+SUBSCRIBE track=video priority=0 order=ASC start=123 end=134
 ~~~
 
 The application is responsible for determining the group sequence numbers based on the desired timestamp.
 This could be done via a `timeline` track or out-of-band.
 
-A subscriber will need a specific `group_end` or else it will download too much data at once, as old media is transmitted at network speed and not encode speed.
+A subscriber will need a specific `end` or else it will download too much data at once, as old media is transmitted at network speed and not encode speed.
 It will need to issue an updated SUBSCRIBE to expand the range as playback continues and the buffer depletes.
 A subscriber could use SUBSCRIBE_UPDATE, however there are race conditions involved.
 
 A DVR player does the same thing but can automatically support joining the live stream.
-It's perfectly valid to specify a `group_end` in the future and it will behave like reliable live viewer once it reaches the live playhead.
+It's perfectly valid to specify a `end` in the future and it will behave like reliable live viewer once it reaches the live playhead.
 
 Alternatively, a DVR player could prefetch the live playhead by issuing a parallel SUBSCRIBE at a lower priority.
 This would allow playback to immediately continue after clicking the "Go Live" button, cancelling or deprioritizing the VOD subscription.
 
 ~~~
-SUBSCRIBE track=video track_priority=0 group_order=ASC group_start=123 group_end=134
-SUBSCRIBE track=video track_priority=1 group_order=DESC
+SUBSCRIBE track=video priority=0 order=ASC start=123 end=134
+SUBSCRIBE track=video priority=1 order=DESC
 ~~~
 
 ### Upstream
@@ -809,22 +809,22 @@ This is the intended behavior for the first hop and dictates which viewers are p
 For example, suppose the producer chooses:
 
 ~~~
-INFO track=audio default_track_priority=0 default_group_order=DESC
-INFO track=video default_track_priority=1 default_group_order=DESC
+INFO track=audio default_priority=0 default_order=DESC
+INFO track=video default_priority=1 default_order=DESC
 ~~~
 
 If Alice is watching a VOD and issues:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=ASC
-SUBSCRIBE track=video track_priority=0 group_order=ASC
+SUBSCRIBE track=audio priority=0 order=ASC
+SUBSCRIBE track=video priority=0 order=ASC
 ~~~
 
 If Bob is watching real-time and issues:
 
 ~~~
-SUBSCRIBE track=audio track_priority=0 group_order=DESC
-SUBSCRIBE track=video track_priority=1 group_order=DESC
+SUBSCRIBE track=audio priority=0 order=DESC
+SUBSCRIBE track=video priority=1 order=DESC
 ~~~
 
 For any congestion on the first mile, then the relay will improve Bob's experience by following the producer's preference.
@@ -860,15 +860,15 @@ For example, suppose a viewer is watching the 360p track and wants to switch to 
 A real-time or unreliable live viewer could issue:
 
 ~~~
-SUBSCRIBE_UPDATE track=360p  track_priority=1 group_order=DESC group_end=69
-SUBSCRIBE        track=1080p track_priority=0 group_order=DESC group_start=69
+SUBSCRIBE_UPDATE track=360p  priority=1 order=DESC end=69
+SUBSCRIBE        track=1080p priority=0 order=DESC start=69
 ~~~
 
 A reliable live or VOD viewer could issue:
 
 ~~~
-SUBSCRIBE_UPDATE track=360p  track_priority=0 group_order=ASC group_end=69
-SUBSCRIBE        track=1080p track_priority=1 group_order=ASC group_start=69
+SUBSCRIBE_UPDATE track=360p  priority=0 order=ASC end=69
+SUBSCRIBE        track=1080p priority=1 order=ASC start=69
 ~~~
 
 The difference between them is whether to prioritize the old track or the new track.
@@ -882,9 +882,9 @@ I want to see it used more often but I doubt it will be.
 Instead of choosing the track based on the bitrate, the viewer subscribes to them all:
 
 ~~~
-SUBSCRIBE track=360p  track_priority=0 group_order=DESC
-SUBSCRIBE track=1080p track_priority=1 group_order=DESC
-SUBSCRIBE track=4k    track_priority=2 group_order=DESC
+SUBSCRIBE track=360p  priority=0 order=DESC
+SUBSCRIBE track=1080p priority=1 order=DESC
+SUBSCRIBE track=4k    priority=2 order=DESC
 ~~~
 
 During congestion, the 4k enhancement layer will be deprioritized followed by the 1080p ehancement layer.
@@ -908,20 +908,20 @@ The same can be done to remove her when she leaves.
 
 ### Participants
 Extending the idea that audio is more important than video, we can prioritize tracks regardless of the source.
-This works because `SUBSCRIBE track_priority` is scoped to the session and not the broadcast.
+This works because `SUBSCRIBE priority` is scoped to the session and not the broadcast.
 
 ~~~
-SUBSCRIBE track=alice.audio track_priority=1
-SUBSCRIBE track=frank.audio track_priority=1
-SUBSCRIBE track=alice.video track_priority=3
-SUBSCRIBE track=frank.video track_priority=3
+SUBSCRIBE track=alice.audio priority=1
+SUBSCRIBE track=frank.audio priority=1
+SUBSCRIBE track=alice.video priority=3
+SUBSCRIBE track=frank.video priority=3
 ~~~
 
 When Alice starts talking or is focused, we can actually issue a SUBSCRIBE_UPDATE to increase her priority:
 
 ~~~
-SUBSCRIBE_UPDATE track=alice.audio track_priority=0
-SUBSCRIBE_UPDATE track=alice.video track_priority=2
+SUBSCRIBE_UPDATE track=alice.audio priority=0
+SUBSCRIBE_UPDATE track=alice.video priority=2
 ~~~
 
 Note that audio is still more important than video, but Alice is now more important than Frank. (poor Frank)
@@ -929,10 +929,10 @@ Note that audio is still more important than video, but Alice is now more import
 This concept can further be extended to work with SVC or ABR:
 
 ~~~
-SUBSCRIBE track=alice.360p track_priority=1
-SUBSCRIBE track=frank.360p track_priority=2
-SUBSCRIBE track=alice.720p track_priority=3
-SUBSCRIBE track=frank.720p track_priority=4
+SUBSCRIBE track=alice.360p priority=1
+SUBSCRIBE track=frank.360p priority=2
+SUBSCRIBE track=alice.720p priority=3
+SUBSCRIBE track=frank.720p priority=4
 ~~~
 
 
