@@ -48,20 +48,21 @@ The draft supports multiple different approaches, but it does so by leaving impo
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
-However, we've been arguing about some of these issues for years now and I don't expect that will change any time soon.
+We've been arguing about some of these issues for years now and I don't expect that will change any time soon.
 I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support a documented set of use-cases.
 
 Here's an overview of the notable differences between MoqTransport and MoqTransfork:
 
 ## Object Model
-The object model is an abstraction exposed to the application outlining how the transport is used.
+The object model is an abstraction exposed to the application, forming the basis of the transport API.
 
-The MoqTransport object model vaguely maps to media concepts, where `group = GoP` and `object = frame`.
-However, this causes my biggest complaint with the draft: the properties of the object model change dynamically based on the publisher's "delivery preference" as there's no agreed upon way to utilize QUIC.
-This creates a lot of complexity and edge cases as the meaning of a track/group/object will subtly change at runtime based on the application.
+The MoqTransport object model vaguely maps to media concepts, where a Group is a Video GoP and an Object is a Video Frame.
+However, there's no agreed upon way to utilize QUIC, leading to the compromise that the publisher chooses a "delivery preference" for each track.
+As a the result the properties of the object model change dynamically at runtime, as the properties of a QUIC stream (or datagram) are moved between a track, group, or object.
+The number of permutations quickly becomes unmanageable and every conversion has to be caveated with "when using a stream per X".
 
 The MoqTransfork object model is instead static and maps directly to QUIC.
-A Group is always an ordered set of bytes, although it may be served via a QUIC stream or datagram depending on the subscription.
+A Group is always an ordered set of bytes, served via a QUIC stream or datagram depending on the subscription.
 This simplification is able to support all of the documented use-cases; see the Appendix.
 
 ## Prioritization
@@ -80,10 +81,10 @@ However when there are multiple conflicting viewers, then a relay should use the
 At the core of any transport are control messages.
 
 MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
-There's also just a lot of messages for errors and state transitions such as `UNSUBSCRIBE`, `SUBSCRIBE_ERROR`, `SUBSCRIBE_DONE`, etc.
+There's also just a lot of messages for state transitions such as `UNSUBSCRIBE`, `SUBSCRIBE_ERROR`, `SUBSCRIBE_DONE`, etc.
 
-MoqTransfork continues the trend of leveraging QUIC with separate control streams, such as one stream per subscription.
-These control streams are terminated when endpoints close or reset (including an error code) the stream, directly leveraging QUIC's stream state machine.
+MoqTransfork continues the trend of leveraging QUIC with separate control streams, like one stream per subscription.
+These control streams are terminated when endpoints close or reset (including an error code) the stream in order to directly leverage QUIC's stream state machine.
 This removes any messages that start with `UN` or end with `_DONE`, `_ERROR`, `_RESET`, etc.
 
 ## Byte Offsets
@@ -94,7 +95,7 @@ This is an okay approach, however it results in redownloading partial objects an
 
 MoqTransfork instead utilizes FETCH to serve incomplete Groups starting at a byte offset.
 QUIC streams are tail dropped when reset so there's no need for a more complex mechanism.
-This also allows an advanced relay to forward STREAM frames directly.
+This means a relay doesn't need to parse frame/object boundaries and it can even forward STREAM frames out-of-order.
 
 ## Datagrams
 Datagrams are useful when payloads are small, overhead is important, and the desired latency is below the RTT.
@@ -104,13 +105,13 @@ This can work for real-time viewers but results in a poor experience for higher 
 
 MoqTransfork instead lets the subscriber indicate if it wants to receive a subscription via streams or datagrams.
 Datagrams should only be used when Groups are smaller than the MTU and the desired latency is smaller than the RTT.
-If so, Groups via datagrams may be silently dropped for whatever reason, saving a few bytes on the wire (~10 per Group) which is desirable for audio use-cases.
+In doing so, Groups sent via datagrams may be silently dropped for whatever reason, saving a few bytes on the wire (~10 per Group) which is desirable for audio use-cases.
 
 ## Use-Cases
-It's boring, but you should write down what you're trying to accomplish before you start writing a protocol.
+It's boring, but you should write down what you're trying to accomplish before you start designing a protocol especially by committee.
 
 MoqTransport is intentionally vague and doesn't mention any use-cases.
-This has caused unnecessary or incomplete features, as it's impossible to argue against a feature or suggest alternatives "some application might need it".
+This has caused unnecessary or incomplete features, as it's impossible to argue against a feature or suggest alternatives when "some application might need it".
 
 MoqTransfork instead includes an Appendix contains a number of media use-cases and recommended approaches that are by no means required or comprehensive.
 This also serves to illustrate the careful layering of Media over QUIC which has otherwise not been documented.
@@ -144,7 +145,6 @@ Each subscription is scoped to a single Track and starts/ends at a Group boundar
 A subscriber chooses the priority of each subscription, dictating which Track arrives first during congestion.
 
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
-For example, a `catalog` track that lists all other tracks and their association.
 
 ### Group
 A Group is an ordered stream of Frames within a Track.
@@ -157,7 +157,9 @@ A Frame is a payload of bytes within a Group.
 
 Frames currently only provides framing, hence the name.
 Framing is useful in some applications but can also be redundant or increase memory usage, as the size must be known upfront.
-This will be removed in a future version of the draft, delegated to a higher layer.
+
+Frame will be removed in a future version of the draft and delegated to a higher layer.
+However, it's useful when being compared to an Object in MoqTransport.
 
 ## Streams vs Datagrams
 MoqTransfork supports two primary methods of transmitting data: QUIC streams and datagrams.
@@ -172,7 +174,6 @@ Each Group MUST have an upfront size that is smaller than network MTU, limiting 
 These restrictions allow the Group to be delivered with less overhead than a stream (~10 bytes per group) which is significant for some real-time use-cases.
 
 A subscriber is responsible for choosing if a subscription is served via streams or datagrams.
-The publisher MUST support both modes for all tracks.
 
 # Workflow
 This section outlines the flow of messages within a MoqTransfork session.
@@ -187,7 +188,7 @@ The client opens the Session Stream and sends a SESSION_CLIENT message and the s
 ## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
 
-Note that QUIC bidirectional streams have both a send and recv direction can be closed or reset (with an error code) independently.
+Note that QUIC bidirectional streams have both a send and recvieve direction that can be closed or reset (with an error code) independently.
 This is used to indicate completion or errors respectively.
 
 The first byte of each stream indicates the Stream Type.
@@ -224,7 +225,7 @@ The session remains active until the Session Stream is closed or reset by either
 
 ### Announce
 A publisher can open an Announce Stream to advertise a broadcast.
-This is optional, as the subscriber can determine the broadcast name out-of-band.
+This is optional, as the application determine the broadcast name out-of-band.
 
 The publisher MUST start the stream with an ANNOUNCE message.
 The subscriber MUST reply with an ANNOUNCE_OK message or reset the stream.
@@ -238,28 +239,21 @@ A subscriber can open a Subscribe Stream to request a named track within a broad
 The Stream Type indicates if the subscription is served via QUIC streams or datagrams.
 
 The SUBSCRIBE message contains a requested Broadcast and Track.
-It also contains prioritization information and a range of Groups, which MAY be updated by the subscriber via a SUBSCRIBE_UPDATE message.
+It also contains prioritization information and a range of Groups, all of which MAY be updated by the subscriber via a SUBSCRIBE_UPDATE message.
 The subscription is active until the either endpoint closes or resets the stream.
 
 The subscriber MUST start a Info Stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
-The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages (streams only), or reset the stream.
+The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages (streams only).
+A publisher MAY reset the stream at any point if it is unable to serve the subscription.
 
-**When QUIC streams are used**, the publisher MUST transmit a complete Group Stream or a GROUP_DROPPED message for each Group within the range.
+**When QUIC streams are used**, the publisher MUST transmit a complete Group Stream or a GROUP_DROPPED message for each Group within the subscription range.
 This means the publisher MUST transmit a GROUP_DROPPED if a Group Stream is reset.
 The subscriber SHOULD close the subscription when all GROUP and GROUP_DROP messages have been received, and the publisher MAY close the subscription after all messages have been acknowledged.
 
-**When QUIC datagrams are used**, the publisher MAY transmit a Group/Frame Datagram for each Group within the range.
+**When QUIC datagrams are used**, the publisher MAY transmit a Group/Frame Datagram for each Group within the subscription range.
 The publisher MUST NOT transmit a GROUP_DROPPED message.
 The publisher SHOULD close the subscription after all Group/Frame Datagrams have been transmitted, and the subscriber MAY close the subscription after all Groups have been received.
 
-
-### Info
-A subscriber can open an Info Stream to request information about a track.
-This is not necessary for a subscription, as SUBSCRIBE will trigger an INFO reply.
-
-The subscriber MUST start the stream with a INFO_REQUEST message.
-The publisher MUST reply with an INFO message or reset the stream.
-Both endpoints MUST close the stream afterwards.
 
 ### Fetch
 A subscriber can open a Fetch Stream to receive a single Group at a specified offset.
@@ -269,6 +263,15 @@ The subscriber MUST start a Fetch Stream with a FETCH message.
 The publisher MUST reply with a GROUP message followed by the rest of a Group Stream, except starting at the specified offset.
 
 The fetch is active until both endpoints close the stream, or either endpoint resets the stream.
+
+
+### Info
+A subscriber can open an Info Stream to request information about a track.
+This is not often necessary as SUBSCRIBE will trigger an INFO reply.
+
+The subscriber MUST start the stream with a INFO_REQUEST message.
+The publisher MUST reply with an INFO message or reset the stream.
+Both endpoints MUST close the stream afterwards.
 
 
 ## Unidirectional
@@ -315,7 +318,7 @@ This saves 1-2 bytes by skipping the FRAME header when there's a only single Fra
 This section covers the encoding of each message.
 
 Note that none of these message have a type identifier.
-Valid messages are determined by the stream type and state.
+The message is determined by the stream type and the current state.
 
 ## SESSION_CLIENT
 TODO copy from moq-transport.
@@ -534,7 +537,7 @@ FRAME Message {
 
 **Payload**:
 An application specific payload.
-A MoqTransfork library MUST NOT inspect or modify the contents unless otherwise negotiated.
+A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
 
 
 # Appendix: Media Use-Cases
