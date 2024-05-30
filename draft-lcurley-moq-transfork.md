@@ -913,17 +913,17 @@ Extending the idea that audio is more important than video, we can prioritize tr
 This works because `SUBSCRIBE priority` is scoped to the session and not the broadcast.
 
 ~~~
-SUBSCRIBE track=alice.audio priority=1
-SUBSCRIBE track=frank.audio priority=1
-SUBSCRIBE track=alice.video priority=3
-SUBSCRIBE track=frank.video priority=3
+SUBSCRIBE broadcast=alice track=audio priority=1
+SUBSCRIBE broadcast=frank track=audio priority=1
+SUBSCRIBE broadcast=alice track=video priority=3
+SUBSCRIBE broadcast=frank track=video priority=3
 ~~~
 
 When Alice starts talking or is focused, we can actually issue a SUBSCRIBE_UPDATE to increase her priority:
 
 ~~~
-SUBSCRIBE_UPDATE track=alice.audio priority=0
-SUBSCRIBE_UPDATE track=alice.video priority=2
+SUBSCRIBE_UPDATE broadcast=alice track=audio priority=0
+SUBSCRIBE_UPDATE broadcast=frank track=video priority=2
 ~~~
 
 Note that audio is still more important than video, but Alice is now more important than Frank. (poor Frank)
@@ -931,10 +931,10 @@ Note that audio is still more important than video, but Alice is now more import
 This concept can further be extended to work with SVC or ABR:
 
 ~~~
-SUBSCRIBE track=alice.360p priority=1
-SUBSCRIBE track=frank.360p priority=2
-SUBSCRIBE track=alice.720p priority=3
-SUBSCRIBE track=frank.720p priority=4
+SUBSCRIBE broadcast=alice track=360p priority=1
+SUBSCRIBE broadcast=frank track=360p priority=2
+SUBSCRIBE broadcast=alice track=720p priority=3
+SUBSCRIBE broadcast=frank track=720p priority=4
 ~~~
 
 
