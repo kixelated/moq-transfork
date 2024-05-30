@@ -4,8 +4,8 @@
 
 moq                                                            L. Curley
 Internet-Draft                                                   Discord
-Intended status: Informational                               27 May 2024
-Expires: 28 November 2024
+Intended status: Informational                               30 May 2024
+Expires: 1 December 2024
 
 
                       Media over QUIC - Transfork
@@ -41,7 +41,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 28 November 2024.
+   This Internet-Draft will expire on 1 December 2024.
 
 Copyright Notice
 
@@ -1249,26 +1249,26 @@ Table of Contents
    prioritize tracks regardless of the source.  This works because
    SUBSCRIBE priority is scoped to the session and not the broadcast.
 
-   SUBSCRIBE track=alice.audio priority=1
-   SUBSCRIBE track=frank.audio priority=1
-   SUBSCRIBE track=alice.video priority=3
-   SUBSCRIBE track=frank.video priority=3
+   SUBSCRIBE broadcast=alice track=audio priority=1
+   SUBSCRIBE broadcast=frank track=audio priority=1
+   SUBSCRIBE broadcast=alice track=video priority=3
+   SUBSCRIBE broadcast=frank track=video priority=3
 
    When Alice starts talking or is focused, we can actually issue a
    SUBSCRIBE_UPDATE to increase her priority:
 
-   SUBSCRIBE_UPDATE track=alice.audio priority=0
-   SUBSCRIBE_UPDATE track=alice.video priority=2
+   SUBSCRIBE_UPDATE broadcast=alice track=audio priority=0
+   SUBSCRIBE_UPDATE broadcast=frank track=video priority=2
 
    Note that audio is still more important than video, but Alice is now
    more important than Frank. (poor Frank)
 
    This concept can further be extended to work with SVC or ABR:
 
-   SUBSCRIBE track=alice.360p priority=1
-   SUBSCRIBE track=frank.360p priority=2
-   SUBSCRIBE track=alice.720p priority=3
-   SUBSCRIBE track=frank.720p priority=4
+   SUBSCRIBE broadcast=alice track=360p priority=1
+   SUBSCRIBE broadcast=frank track=360p priority=2
+   SUBSCRIBE broadcast=alice track=720p priority=3
+   SUBSCRIBE broadcast=frank track=720p priority=4
 
 7.  Security Considerations
 
@@ -1282,9 +1282,9 @@ Table of Contents
 
    [moqt]     Curley, L., Pugin, K., Nandakumar, S., Vasiliev, V., and
               I. Swett, "Media over QUIC Transport", Work in Progress,
-              Internet-Draft, draft-ietf-moq-transport-03, 4 March 2024,
+              Internet-Draft, draft-ietf-moq-transport-04, 29 May 2024,
               <https://datatracker.ietf.org/doc/html/draft-ietf-moq-
-              transport-03>.
+              transport-04>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
