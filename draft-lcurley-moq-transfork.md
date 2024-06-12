@@ -179,17 +179,38 @@ A subscriber is responsible for choosing if a subscription is served via streams
 This section outlines the flow of messages within a MoqTransfork session.
 See the section for Messages section for the specific encoding.
 
-## Establishment
-MoqTransfork runs on top of either WebTransport or QUIC.
+## Connection
+MoqTransfork runs on top of either WebTransport or QUIC directly.
 
-After a connection is established, the endpoints perform a MoqTransfork handshake to negotiate the version and other parameters.
-The client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+WebTransport is a layer on top of QUIC and HTTP/3 required for web support.
+The API is nearly identical to QUIC, however notably lacks stream IDs and has fewer available error codes.
+
+QUIC may be used directly with the ALPN `moqf-00`, which will be updated any time there is a breaking change to version negotiation.
+The QUIC client SHOULD include a PATH and ORIGIN parameter in the SESSION_CLIENT message to emulate a WebTransport client. 
+
+## Termination 
+MoqTransfork involves multiple concurrent streams intended to be closed or reset (with an error code) independently.
+This is more involved because QUIC bidirectional streams have both a send and receive direction.
+
+To terminate a stream, an endpoint closes (STREAM_FIN) or resets (RESET_STREAM) the send direction.
+Any messages/data on a closed stream will still be delivered, while a reset results in immediate termination.
+An endpoint MAY reset the receive direction (STOP_SENDING).
+
+An endpoint MUST monitor the read direction to detect if it is closed or reset and unless otherwise specified, MUST correspondingly close or reset the send direction.
+An endpoint MAY monitor the send direction for errors, especially for unidirectional streams.
+
+An endpoint MUST close the connection on a fatal error, such as a protocol or encoding violation. 
+
+
+## Handshake
+After a connection is established, the client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+The session is active until either endpoint closes or resets the Session Stream.
+
+This session handshake is used to negotiate the MoqTransfork version, role, and any future parameters.
+
 
 ## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
-
-Note that QUIC bidirectional streams have both a send and recvieve direction that can be closed or reset (with an error code) independently.
-This is used to indicate completion or errors respectively.
 
 The first byte of each stream indicates the Stream Type.
 Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
