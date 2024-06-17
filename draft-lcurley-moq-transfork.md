@@ -24,8 +24,9 @@ informative:
 
 --- abstract
 
-TODO Abstract
-
+MoqTransfork is a live media transport utilizing QUIC.
+The protocol is designed to scale and simultaneously serve viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
+MoqTransfork is media agnostic as the specific media encoding (ex. container+codec) is delegated to a higher layer.
 
 --- middle
 
@@ -42,14 +43,16 @@ I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-However, there are some flaws with MoqTransport that I'd like to address.
-It's been years and we're still unable to align on the most critical property of the transport... how to utilize QUIC.
-The draft supports multiple different approaches, but it does so by leaving important properties dynamic or undefined.
+However, there are practical and conceptual flaws with MoqTransport that need to be addressed.
+It's been very difficult to design an experimental protocol via committee and over two years in, we're still unable to align on the most critical property of the transport... how to utilize QUIC.
+The MoqTransport draft contains multiple mechanisms ("delivery preference") that are difficult to implement, use, and even discuss.
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
-We've been arguing about some of these issues for years now and I don't expect that will change any time soon.
 I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support a documented set of use-cases.
+A fork lets me focus on building applications and gives the standard a chance to catch up instead of lead.
+
+The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
 
 Here's an overview of the notable differences between MoqTransport and MoqTransfork:
 
@@ -559,6 +562,68 @@ FRAME Message {
 **Payload**:
 An application specific payload.
 A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
+
+# Appendix: Change Log
+
+## transfork-01
+
+## transfork-00
+Based on moq-transport-03
+
+### Bikeshedding
+Couldn't help it.
+
+- Renamed Track Namespace to Broadcast
+- Renamed Object to Frame
+
+
+### Subscriber's Choice
+MoqTransfork moves most decision making to the subscriber, so a single publisher can support multiple diverse subscribers.
+The publisher provides a default value to resolve conflicts when deduplicating.
+
+- Removed Delivery Preference (publisher choice)
+-- Stream per Track
+-- Stream per Group
+-- Stream per Object
+-- Datagram per Object
+- Added Subscribe Mode (subscriber choice)
+-- Stream per Group
+-- Datagram per Group
+- Removed Stream priority (publisher choice)
+- Added Subscribe Track Priority (subscriber choice)
+- Added Subscribe Group Order (subscriber choice)
+- Added Group Expires (subscriber and publisher choice)
+
+### Control Streams
+Transactions like Announce and Subscribe use their own control stream, inheriting the stream state machine for error handling.
+
+- Removed ANNOUNCE_ERROR
+- Removed ANNOUNCE_DONE
+- Removed UNANNOUNCE
+- Removed SUBSCRIBE_OK
+- Removed SUBSCRIBE_ERROR
+- Removed SUBSCRIBE_DONE
+- Removed UNSUBSCRIBE
+
+### Unambiguous Delivery
+The subscriber now knows if a group/frame will be delivered or was dropped.
+
+- Group Sequences are sequential
+- All sequences within the SUBSCRIBE range are delivered or dropped.
+- GROUP_DROP when a group is dropped.
+
+### Track INFO
+Added a mechanism to request information about the current track state.
+
+- Added INFO_REQUEST and INFO
+- Replaced SUBSCRIBE_OK with INFO
+
+### Fetch via Offset
+A reconnecting subscriber can request the retransmission of a group/stream at a given byte offset.
+
+- Added FETCH.
+- Removed Object ID.
+
 
 
 # Appendix: Media Use-Cases
