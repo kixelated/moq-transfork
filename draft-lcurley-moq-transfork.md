@@ -216,9 +216,7 @@ The Session stream contains all messages that are session level.
 
 The client MUST open a single Session Stream immediately after establishing the QUIC/WebTransport session.
 The client sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
-
-Afterwards, both endpoints MAY send SESSION_INFO messages containing information about the session.
-The endpoint SHOULD send an updated SESSION_INFO message, such as after a significant change in the session bitrate.
+Afterwards, both endpoints SHOULD send SESSION_UPDATE messages, such as after a significant change in the session bitrate.
 
 The session remains active until the Session Stream is closed or reset by either endpoint.
 
@@ -259,8 +257,9 @@ The publisher SHOULD close the subscription after all Group/Frame Datagrams have
 A subscriber can open a Fetch Stream to receive a single Group at a specified offset.
 This is primarily used to recover from an abrupt stream termination, causing the truncation of a Group.
 
-The subscriber MUST start a Fetch Stream with a FETCH message.
-The publisher MUST reply with a GROUP message followed by the rest of a Group Stream, except starting at the specified offset.
+The subscriber MUST start a Fetch Stream with a FETCH message followed by any number of FETCH_UPDATE messages.
+The publisher MUST reply with the contents of a Group Stream, except starting at the specified offset *after* the GROUP message.
+Note that this includes any FRAME messages.
 
 The fetch is active until both endpoints close the stream, or either endpoint resets the stream.
 
@@ -338,10 +337,10 @@ This contains:
 - the server's role
 - any extensions
 
-## SESSION_INFO
+## SESSION_UPDATE
 
 ~~~
-SESSION_INFO Message {
+SESSION_UPDATE Message {
   Session Bitrate (i)
 }
 ~~~
@@ -381,8 +380,8 @@ SUBSCRIBE Message {
   Track Priority (i)
   Group Order (i)
   Group Expires (i)
-  Group Sequence Min (i)
-  Group Sequence Max (i)
+  Group Min (i)
+  Group Max (i)
 }
 ~~~
 
@@ -397,14 +396,13 @@ The publisher SHOULD transmit groups based on their sequence number in default (
 **Group Expires**:
 A duration in milliseconds that applies to all Groups within the subscription.
 The group SHOULD be dropped if this duration has elapsed after group has finished, including any time spent cached.
-A GROUP's Group Expires value SHOULD be used instead when smaller.
+The publisher's Group Expires value (via INFO) SHOULD be used instead when smaller.
 
-
-**Group Sequence Min**:
+**Group Min**:
 The minimum group sequence number plus 1.
 A value of 0 indicates the latest Group Sequence as determined by the publisher.
 
-**Group Sequence Max**:
+**Group Max**:
 The maximum group sequence number plus 1.
 A value of 0 indicates there is no maximum and the subscription continues indefinitely.
 
@@ -416,16 +414,17 @@ A subscriber can modify a subscription with a SUBSCRIBE_UPDATE message.
 SUBSCRIBE_UPDATE Message {
   Track Priority (i)
   Group Order (i)
-  Group Sequence Min (i)
-  Group Sequence Max (i)
+  Group Expires (i)
+  Group Min (i)
+  Group Max (i)
 }
 ~~~
 
-**Group Sequence Min**:
+**Group Min**:
 The new minimum group sequence, or 0 if there is no update.
 This value MUST NOT be smaller than prior SUBSCRIBE and SUBSCRIBE_UPDATE messages.
 
-**Group Sequence Max**:
+**Group Max**:
 The new maximum group sequence, or 0 if there is no update.
 This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 
@@ -435,23 +434,30 @@ The INFO message contains the current information about a track.
 
 ~~~
 INFO Message {
-  Latest Group (i)
-  Default Track Priority (i)
-  Default Group Order (i)
+  Track Priority (i)
+  Group Latest (i)
+  Group Order (i)
+  Group Expires (i)
 }
 ~~~
 
-**Latest Group**:
-The latest group as currently known by the publisher.
-A relay without an active subscription SHOULD forward this request upstream
-
-**Default Track Priority**:
-The default priority of this track within the broadcast.
+**Track Priority**:
+The priority of this track within the broadcast.
 Note that this is slightly different than SUBSCRIBE, which is scoped to a session not broadcast.
 The publisher SHOULD transmit subscriptions with *lower* values first during congestion.
 
-**Default Group Order**:
-The default order of the groups within the subscription: none (0), ascending (1), or descending (2).
+
+**Group Latest**:
+The latest group as currently known by the publisher.
+A relay without an active subscription SHOULD forward this request upstream
+
+**Group Order**:
+The publisher's intended order of the groups within the subscription: none (0), ascending (1), or descending (2).
+
+**Group Expires**:
+A duration in milliseconds.
+The group SHOULD be dropped if this duration has elapsed after group has finished, including any time spent cached.
+The Subscriber's Group Expires value SHOULD be used instead when smaller.
 
 
 ## INFO_REQUEST
@@ -486,6 +492,20 @@ The publisher should transmit *lower* values first during congestion.
 The requested offset in bytes *after* the GROUP message.
 
 
+## FETCH_UPDATE
+A subscriber can modify a FETCH request with a FETCH_UPDATE message.
+
+~~~
+FETCH_UPDATE Message {
+  Track Priority (i)
+}
+~~~
+
+**Track Priority**:
+The priority of the group relative to all other FETCH and SUBSCRIBE requests within the session.
+The publisher should transmit *lower* values first during congestion.
+
+
 ## GROUP
 The GROUP message contains information about a Group, as well as a reference to the subscription being served.
 
@@ -493,32 +513,25 @@ The GROUP message contains information about a Group, as well as a reference to 
 GROUP Message {
   Subscribe ID (i)
   Group Sequence (i)
-  Group Expires (i)
 }
 ~~~
-
-**Group Expires**:
-A duration in milliseconds.
-The group SHOULD be dropped if this duration has elapsed after group has finished, including any time spent cached.
-The SUBSCRIBE Group Expires value SHOULD be used instead when smaller.
-
 
 ## GROUP_DROP
 A publisher transmits a GROUP_DROP message when it is unable to serve a group for a SUBSCRIBE.
 
 ~~~
 GROUP_DROP {
-  Group Sequence Start (i)
-  Group Sequence Count (i)
+  Group Start (i)
+  Group Count (i)
   Group Error Code (i)
 }
 ~~~
 
 
-**Group Sequence Start**:
+**Group Start**:
 The sequence number for the first group within the dropped range.
 
-**Group Sequence Count**:
+**Group Count**:
 The number of additional groups after the first.
 This value is 0 when only one group is dropped.
 
@@ -538,6 +551,18 @@ FRAME Message {
 **Payload**:
 An application specific payload.
 A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
+
+# Appendix: Changelog
+Notable changes between versions of this draft.
+
+## moq-transfork-01
+- Moved Expires from GROUP to SUBSCRIBE
+- Added FETCH_UPDATE
+
+## moq-transfork-00
+Based on moq-transport-03
+
+TODO a lot
 
 
 # Appendix: Media Use-Cases
@@ -805,14 +830,14 @@ SUBSCRIBE track=video priority=1 order=DESC
 All of these separate viewers could be watching the same broadcast.
 How is a relay supposed to fetch the content from upstream?
 
-MoqTransfork addresses this by providing a Default Track Priority and Default Group Order in the INFO message.
+MoqTransfork addresses this by providing the publisher's Track Priority and Group Order in the INFO message.
 This is the intended behavior for the first hop and dictates which viewers are preferred.
 
 For example, suppose the producer chooses:
 
 ~~~
-INFO track=audio default_priority=0 default_order=DESC
-INFO track=video default_priority=1 default_order=DESC
+INFO track=audio priority=0 order=DESC
+INFO track=video priority=1 order=DESC
 ~~~
 
 If Alice is watching a VOD and issues:
@@ -832,7 +857,7 @@ SUBSCRIBE track=video priority=1 order=DESC
 For any congestion on the first mile, then the relay will improve Bob's experience by following the producer's preference.
 However any congestion on the last mile will always use the viewer's preference.
 
-A relay should use the default priority/order only when there's a conflict.
+A relay should use the publisher's priority/order only when there's a conflict.
 If viewers have the same priority/order, then the relay should use the viewer's preference and it can always issue a SUBSCRIBE_UPDATE when this changes.
 
 
@@ -854,7 +879,7 @@ For example, the device may not support the 4K track since it uses AV1, or the s
 This is easy enough to support; just ignore these tracks in the catalog.
 
 The primary reason to use ABR is to adapt to changing network conditions.
-The viewer learns about the estimated bandwidth via the SESSION_INFO message, or by measuring network traffic and can then choose the appropriate track based on bitrate.
+The viewer learns about the estimated bandwidth via the SESSION_UPDATE message, or by measuring network traffic and can then choose the appropriate track based on bitrate.
 
 Transitioning between tracks can be done seamlessly by utilizing prioritization.
 For example, suppose a viewer is watching the 360p track and wants to switch to 1080p at group 69.
