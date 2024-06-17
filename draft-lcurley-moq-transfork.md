@@ -24,8 +24,9 @@ informative:
 
 --- abstract
 
-TODO Abstract
-
+MoqTransfork is a live media transport utilizing QUIC.
+The protocol is designed to scale and simultaneously serve viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
+MoqTransfork is media agnostic as the specific media encoding (ex. container+codec) is delegated to a higher layer.
 
 --- middle
 
@@ -42,14 +43,16 @@ I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-However, there are some flaws with MoqTransport that I'd like to address.
-It's been years and we're still unable to align on the most critical property of the transport... how to utilize QUIC.
-The draft supports multiple different approaches, but it does so by leaving important properties dynamic or undefined.
+However, there are practical and conceptual flaws with MoqTransport that need to be addressed.
+It's been very difficult to design an experimental protocol via committee and over two years in, we're still unable to align on the most critical property of the transport... how to utilize QUIC.
+The MoqTransport draft contains multiple mechanisms ("delivery preference") that are difficult to implement, use, and even discuss.
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
-We've been arguing about some of these issues for years now and I don't expect that will change any time soon.
 I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support a documented set of use-cases.
+A fork lets me focus on building applications and gives the standard a chance to catch up instead of lead.
+
+The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
 
 Here's an overview of the notable differences between MoqTransport and MoqTransfork:
 
@@ -179,17 +182,38 @@ A subscriber is responsible for choosing if a subscription is served via streams
 This section outlines the flow of messages within a MoqTransfork session.
 See the section for Messages section for the specific encoding.
 
-## Establishment
-MoqTransfork runs on top of either WebTransport or QUIC.
+## Connection
+MoqTransfork runs on top of either WebTransport or QUIC directly.
 
-After a connection is established, the endpoints perform a MoqTransfork handshake to negotiate the version and other parameters.
-The client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+WebTransport is a layer on top of QUIC and HTTP/3 required for web support.
+The API is nearly identical to QUIC, however notably lacks stream IDs and has fewer available error codes.
+
+QUIC may be used directly with the ALPN `moqf-00`, which will be updated any time there is a breaking change to version negotiation.
+The QUIC client SHOULD include a PATH and ORIGIN parameter in the SESSION_CLIENT message to emulate a WebTransport client.
+
+## Termination
+MoqTransfork involves multiple concurrent streams intended to be closed or reset (with an error code) independently.
+This is more involved because QUIC bidirectional streams have both a send and receive direction.
+
+To terminate a stream, an endpoint closes (STREAM_FIN) or resets (RESET_STREAM) the send direction.
+Any messages/data on a closed stream will still be delivered, while a reset results in immediate termination.
+An endpoint MAY reset the receive direction (STOP_SENDING).
+
+An endpoint MUST monitor the read direction to detect if it is closed or reset and unless otherwise specified, MUST correspondingly close or reset the send direction.
+An endpoint MAY monitor the send direction for errors, especially for unidirectional streams.
+
+An endpoint MUST close the connection on a fatal error, such as a protocol or encoding violation.
+
+
+## Handshake
+After a connection is established, the client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+The session is active until either endpoint closes or resets the Session Stream.
+
+This session handshake is used to negotiate the MoqTransfork version, role, and any future parameters.
+
 
 ## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
-
-Note that QUIC bidirectional streams have both a send and recvieve direction that can be closed or reset (with an error code) independently.
-This is used to indicate completion or errors respectively.
 
 The first byte of each stream indicates the Stream Type.
 Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
@@ -562,7 +586,59 @@ Notable changes between versions of this draft.
 ## moq-transfork-00
 Based on moq-transport-03
 
-TODO a lot
+### Bikeshedding
+Couldn't help it.
+
+- Renamed Track Namespace to Broadcast
+- Renamed Object to Frame
+
+
+### Subscriber's Choice
+MoqTransfork moves most decision making to the subscriber, so a single publisher can support multiple diverse subscribers.
+The publisher provides a default value to resolve conflicts when deduplicating.
+
+- Removed Delivery Preference (publisher choice)
+-- Stream per Track
+-- Stream per Group
+-- Stream per Object
+-- Datagram per Object
+- Added Subscribe Mode (subscriber choice)
+-- Stream per Group
+-- Datagram per Group
+- Removed Stream priority (publisher choice)
+- Added Subscribe Track Priority (subscriber choice)
+- Added Subscribe Group Order (subscriber choice)
+- Added Group Expires (subscriber and publisher choice)
+
+### Control Streams
+Transactions like Announce and Subscribe use their own control stream, inheriting the stream state machine for error handling.
+
+- Removed ANNOUNCE_ERROR
+- Removed ANNOUNCE_DONE
+- Removed UNANNOUNCE
+- Removed SUBSCRIBE_OK
+- Removed SUBSCRIBE_ERROR
+- Removed SUBSCRIBE_DONE
+- Removed UNSUBSCRIBE
+
+### Unambiguous Delivery
+The subscriber now knows if a group/frame will be delivered or was dropped.
+
+- Group Sequences are sequential
+- All sequences within the SUBSCRIBE range are delivered or dropped.
+- GROUP_DROP when a group is dropped.
+
+### Track INFO
+Added a mechanism to request information about the current track state.
+
+- Added INFO_REQUEST and INFO
+- Replaced SUBSCRIBE_OK with INFO
+
+### Fetch via Offset
+A reconnecting subscriber can request the retransmission of a group/stream at a given byte offset.
+
+- Added FETCH.
+- Removed Object ID.
 
 
 # Appendix: Media Use-Cases
@@ -938,17 +1014,17 @@ Extending the idea that audio is more important than video, we can prioritize tr
 This works because `SUBSCRIBE priority` is scoped to the session and not the broadcast.
 
 ~~~
-SUBSCRIBE track=alice.audio priority=1
-SUBSCRIBE track=frank.audio priority=1
-SUBSCRIBE track=alice.video priority=3
-SUBSCRIBE track=frank.video priority=3
+SUBSCRIBE broadcast=alice track=audio priority=1
+SUBSCRIBE broadcast=frank track=audio priority=1
+SUBSCRIBE broadcast=alice track=video priority=3
+SUBSCRIBE broadcast=frank track=video priority=3
 ~~~
 
 When Alice starts talking or is focused, we can actually issue a SUBSCRIBE_UPDATE to increase her priority:
 
 ~~~
-SUBSCRIBE_UPDATE track=alice.audio priority=0
-SUBSCRIBE_UPDATE track=alice.video priority=2
+SUBSCRIBE_UPDATE broadcast=alice track=audio priority=0
+SUBSCRIBE_UPDATE broadcast=frank track=video priority=2
 ~~~
 
 Note that audio is still more important than video, but Alice is now more important than Frank. (poor Frank)
@@ -956,10 +1032,10 @@ Note that audio is still more important than video, but Alice is now more import
 This concept can further be extended to work with SVC or ABR:
 
 ~~~
-SUBSCRIBE track=alice.360p priority=1
-SUBSCRIBE track=frank.360p priority=2
-SUBSCRIBE track=alice.720p priority=3
-SUBSCRIBE track=frank.720p priority=4
+SUBSCRIBE broadcast=alice track=360p priority=1
+SUBSCRIBE broadcast=frank track=360p priority=2
+SUBSCRIBE broadcast=alice track=720p priority=3
+SUBSCRIBE broadcast=frank track=720p priority=4
 ~~~
 
 
