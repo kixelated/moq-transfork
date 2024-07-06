@@ -45,80 +45,15 @@ I fully support the goals of the working group and the IETF process.
 
 However, there are practical and conceptual flaws with MoqTransport that need to be addressed.
 It's been very difficult to design an experimental protocol via committee and over two years in, we're still unable to align on the most critical property of the transport... how to utilize QUIC.
-The MoqTransport draft contains multiple mechanisms ("delivery preference") that are difficult to implement, use, and even discuss.
+We've over-complicated everything in an attempt to find a middle ground between hazy ideas and prototypes.
+
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
-I'd like to try leading by example, demonstrating that it's possible to simplify the protocol and still support a documented set of use-cases.
-A fork lets me focus on building applications and gives the standard a chance to catch up instead of lead.
+I'd like to try leading by example, demonstrating how to support real media use-cases while simplifying the protocol.
+The working group will keep making progress and hopefully incorporate many of these ideas.
 
 The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
-
-Here's an overview of the notable differences between MoqTransport and MoqTransfork:
-
-## Object Model
-The object model is an abstraction exposed to the application, forming the basis of the transport API.
-
-The MoqTransport object model vaguely maps to media concepts, where a Group is a Video GoP and an Object is a Video Frame.
-However, there's no agreed upon way to utilize QUIC, leading to the compromise that the publisher chooses a "delivery preference" for each track.
-As a the result the properties of the object model change dynamically at runtime, as the properties of a QUIC stream (or datagram) are moved between a track, group, or object.
-The number of permutations quickly becomes unmanageable and every conversion has to be caveated with "when using a stream per X".
-
-The MoqTransfork object model is instead static and maps directly to QUIC.
-A Group is always an ordered set of bytes, served via a QUIC stream or datagram depending on the subscription.
-This simplification is able to support all of the documented use-cases; see the Appendix.
-
-## Prioritization
-Prioritization is important for low-latency, ensuring the publisher sends the most important media first during congestion.
-
-MoqTransport uses producer chosen priorities via send order.
-As the original proponent of this approach, I'm ashamed to admit that I was wrong.
-Reality is more nuanced; both the subscriber and publisher need to work together.
-
-MoqTransfork instead delegates the priority decision for the last mile to the subscriber.
-This is done via a `Track Priority` and `Group Order` field within `SUBSCRIBE`.
-If there's a single viewer, then this priority can be used all the way to origin.
-However when there are multiple conflicting viewers, then a relay should use the producer's preference as advertised in `INFO`.
-
-## Control Streams
-At the core of any transport are control messages.
-
-MoqTransport control messages are fine, but have the potential for head-of-line blocking as they share a single stream.
-There's also just a lot of messages for state transitions such as `UNSUBSCRIBE`, `SUBSCRIBE_ERROR`, `SUBSCRIBE_DONE`, etc.
-
-MoqTransfork continues the trend of leveraging QUIC with separate control streams, like one stream per subscription.
-These control streams are terminated when endpoints close or reset (including an error code) the stream in order to directly leverage QUIC's stream state machine.
-This removes any messages that start with `UN` or end with `_DONE`, `_ERROR`, `_RESET`, etc.
-
-## Byte Offsets
-When a connection or subscription is severed, it's often desirable to resume where it left off.
-
-MoqTransport implements this via subscriptions that can start/end at an object ID within a group.
-This is an okay approach, however it results in redownloading partial objects and results in a fragmented cache at parsed boundaries.
-
-MoqTransfork instead utilizes FETCH to serve incomplete Groups starting at a byte offset.
-QUIC streams are tail dropped when reset so there's no need for a more complex mechanism.
-This means a relay doesn't need to parse frame/object boundaries and it can even forward STREAM frames out-of-order.
-
-## Datagrams
-Datagrams are useful when payloads are small, overhead is important, and the desired latency is below the RTT.
-
-MoqTransport supports sending objects as QUIC datagrams via a publisher track preference.
-This can work for real-time viewers but results in a poor experience for higher latency viewers subscribed to the same track.
-
-MoqTransfork instead lets the subscriber indicate if it wants to receive a subscription via streams or datagrams.
-Datagrams should only be used when Groups are smaller than the MTU and the desired latency is smaller than the RTT.
-In doing so, Groups sent via datagrams may be silently dropped for whatever reason, saving a few bytes on the wire (~10 per Group) which is desirable for audio use-cases.
-
-## Use-Cases
-It's boring, but you should write down what you're trying to accomplish before you start designing a protocol especially by committee.
-
-MoqTransport is intentionally vague and doesn't mention any use-cases.
-This has caused unnecessary or incomplete features, as it's impossible to argue against a feature or suggest alternatives when "some application might need it".
-
-MoqTransfork instead includes an Appendix contains a number of media use-cases and recommended approaches that are by no means required or comprehensive.
-This also serves to illustrate the careful layering of Media over QUIC which has otherwise not been documented.
-
 
 
 # Concepts
@@ -138,8 +73,6 @@ A Broadcast is a collection of tracks from a single producer, identified by a un
 Each subscription is scoped to a single Broadcast and Track within it.
 A publisher may advertise available broadcasts via an ANNOUNCE message or an out-of-band mechanism.
 
-The MoqTransport draft refers to this as "track namespace".
-I couldn't help but bikeshed.
 
 ### Track
 A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
@@ -176,7 +109,9 @@ Delivering a Group via a datagram instead means a Group will be transmitted once
 Each Group MUST have an upfront size that is smaller than network MTU, limiting them in both size and duration.
 These restrictions allow the Group to be delivered with less overhead than a stream (~10 bytes per group) which is significant for some real-time use-cases.
 
-A subscriber is responsible for choosing if a subscription is served via streams or datagrams.
+The subscriber chooses if a subscription is served via streams (`SUBSCRIBE`) or datagrams (`SUBSCRIBE_DATAGRAMS`).
+A publisher should support both modes as they are nearly identical.
+
 
 # Workflow
 This section outlines the flow of messages within a MoqTransfork session.
@@ -192,24 +127,27 @@ QUIC may be used directly with the ALPN `moqf-00`, which will be updated any tim
 The QUIC client SHOULD include a PATH and ORIGIN parameter in the SESSION_CLIENT message to emulate a WebTransport client.
 
 ## Termination
-MoqTransfork involves multiple concurrent streams intended to be closed or reset (with an error code) independently.
-This is more involved because QUIC bidirectional streams have both a send and receive direction.
+QUIC streams can be closed or reset with an error code, while bidirectional streams have an independent send and receive direction.
+Rather than deal with half-open states, MoqTransfork combines both sides.
+If an endpoint closes the send direction of a stream, it also closes the recv direction.
 
 To terminate a stream, an endpoint closes (STREAM_FIN) or resets (RESET_STREAM) the send direction.
 Any messages/data on a closed stream will still be delivered, while a reset results in immediate termination.
-An endpoint MAY reset the receive direction (STOP_SENDING).
+An endpoint MAY close the recv direction with the same error code.
 
-An endpoint MUST monitor the read direction to detect if it is closed or reset and unless otherwise specified, MUST correspondingly close or reset the send direction.
-An endpoint MAY monitor the send direction for errors, especially for unidirectional streams.
+An endpoint MUST monitor the recv direction for errors.
+When the recv direction is closed/reset, the endpoint MUST close/reset the send direction.
 
-An endpoint MUST close the connection on a fatal error, such as a protocol or encoding violation.
+An endpoint MAY close the session by closing/resetting the Session Stream.
+An endpoint MUST close the connection (via CONNECTION_CLOSE) on a fatal encoding error or protocol violation.
 
 
 ## Handshake
 After a connection is established, the client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
 The session is active until either endpoint closes or resets the Session Stream.
 
-This session handshake is used to negotiate the MoqTransfork version, role, and any future parameters.
+This session handshake is used to negotiate the MoqTransfork version and any extensions.
+See the Extension section for more information.
 
 
 ## Bidirectional Streams
@@ -344,22 +282,32 @@ Note that none of these message have a type identifier.
 The message is determined by the stream type and the current state.
 
 ## SESSION_CLIENT
-TODO copy from moq-transport.
+The client advertises supported versions and any extensions.
 
-This contains:
-
-- supported versions
-- the client's role
-- any extensions
+~~~
+SESSION_CLIENT Message {
+  Supported Versions Count (i)
+  Supported Version (i)
+  ...
+  Extension Count (i)
+  Extension ID (i)
+  Extension Payload (b)
+  ...
+}
+~~~
 
 ## SESSION_SERVER
-TODO copy from moq-transport
+The server responds with the selected version and any extensions.
 
-This contains:
-
-- the selected version
-- the server's role
-- any extensions
+~~~
+SESSION_SERVER Message {
+  Selected Version (i)
+  Extension Count (i)
+  Extension ID (i)
+  Extension Payload (b)
+  ...
+}
+~~~
 
 ## SESSION_UPDATE
 
@@ -576,12 +524,40 @@ FRAME Message {
 An application specific payload.
 A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
 
+# Extensions
+SESSION_CLIENT and SESSION_SERVER have a flexible encoding to facilitate extension negotiation without causing breaking changes.
+
+This draft registers some extensions and reserves any IDs smaller than 64 for future drafts.
+Other documents MAY introduce additional extensions.
+
+|------|--------|
+| ID   | Extension  |
+|-----:|:-------|
+| 0x0  | Role  |
+|------|--------|
+
+## Role
+The Role Extension indicates the desired role for the endpoint.
+This is useful for indicating intent, such as a client indicating that it will not publish any tracks.
+It also enables simple clients to implement only one half of the protocol.
+
+TODO 
+PUBLISHER
+SUBSCRIBER
+BOTH
+ANY
+
+If either endpoint fails to include the Role Extension, both endpoints default to Role=BOTH.
+An endpoint MAY close the session with a RequiredExtension error (TODO) if it is required.
+
+
 # Appendix: Changelog
 Notable changes between versions of this draft.
 
 ## moq-transfork-01
 - Moved Expires from GROUP to SUBSCRIBE
 - Added FETCH_UPDATE
+- Added ROLE=Any
 
 ## moq-transfork-00
 Based on moq-transport-03
