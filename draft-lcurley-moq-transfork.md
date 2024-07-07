@@ -539,16 +539,26 @@ Other documents MAY introduce additional extensions.
 ## Role
 The Role Extension indicates the desired role for the endpoint.
 This is useful for indicating intent, such as a client indicating that it will not publish any tracks.
-It also enables simple clients to implement only one half of the protocol.
 
-TODO 
-PUBLISHER
-SUBSCRIBER
-BOTH
-ANY
+The Role payload is a single varint indicating the functionality of the sender: 
 
-If either endpoint fails to include the Role Extension, both endpoints default to Role=BOTH.
-An endpoint MAY close the session with a RequiredExtension error (TODO) if it is required.
+|-------|------------|
+| Value | Role       |
+|------:|:-----------|
+| 0x0   | Publisher  |
+|-------|------------|
+| 0x1   | Subscriber |
+|-------|------------|
+| 0x2   | Both       |
+|-------|------------|
+| 0x3   | Any        |
+|-------|------------|
+
+
+
+If the extension is not present, the default value is Both.
+An endpoint MAY close the session with a RequiredExtension error (TODO) if the extension is missing and this default role is incompatible.
+
 
 
 # Appendix: Changelog
