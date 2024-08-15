@@ -24,9 +24,10 @@ informative:
 
 --- abstract
 
-MoqTransfork is a live media transport utilizing QUIC.
-The protocol is designed to scale and simultaneously serve viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
-MoqTransfork is media agnostic as the specific media encoding (ex. container+codec) is delegated to a higher layer.
+MoqTransfork is a live pub/sub transport utilizing QUIC.
+The protocol is designed to serve an unbounded number of viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
+MoqTransfork itself is media agnostic, containing only the necessary metadata to relay live tracks optimally during congestion.
+The specific media encoding (ex. container+codec) is delegated to a higher layer and the broadcaster/viewer endpoints.
 
 --- middle
 
@@ -44,20 +45,26 @@ The layering is phenomenal and addresses many of the problems with current live 
 I fully support the goals of the working group and the IETF process.
 
 However, there are practical and conceptual flaws with MoqTransport that need to be addressed.
-It's been very difficult to design an experimental protocol via committee and over two years in, we're still unable to align on the most critical property of the transport... how to utilize QUIC.
-We've over-complicated everything in an attempt to find a middle ground between hazy ideas and prototypes.
+It's been very difficult to design an experimental protocol via committee and we've yet to align on the most critical property of the transport... how to utilize QUIC.
+I've spent too much time arguing on Github and implementing the eventual "compromise", often distinct and incompatible modes. 
 
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
 This fork is meant to be constructive; an alternative vision.
 I'd like to try leading by example, demonstrating how to support real media use-cases while simplifying the protocol.
-The working group will keep making progress and hopefully incorporate many of these ideas.
+The working group will keep making progress and I hope many of these ideas are incorporated.
 
 The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
 
 
 # Concepts
-Many of the concepts are borrowed from MoqTransport so I'm not going to fully rehash them here; a future draft will.
+MoqTransfork consists of a WebTransport session that is used to publish and/or subscribe to multiple live tracks.
+To facilitate joining in the middle, a track can be subdivided into independent "groups" and further into "frames".
+See Object Model for a full overview.
+
+During congestion, only the most important data is transmitted while the rest is starved.
+The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
+Any data that is excessively starved may be dropped rather than block the live stream.
 
 ## Object Model
 The MoqTransfork object model consists of:
@@ -70,8 +77,12 @@ The MoqTransfork object model consists of:
 ### Broadcast
 A Broadcast is a collection of tracks from a single producer, identified by a unique name within the session.
 
-Each subscription is scoped to a single Broadcast and Track within it.
-A publisher may advertise available broadcasts via an ANNOUNCE message or an out-of-band mechanism.
+Each subscription is scoped to a single Track within Broadcast.
+The application determines if tracks within a broadcast are correlated.
+For example, a "video" track and "audio" track may use synchronized timestamps.
+
+A publisher can advertise available broadcasts via an ANNOUNCE message.
+Alternatively, the application can discover broadcasts via an out-of-band mechanism.
 
 
 ### Track
@@ -81,21 +92,19 @@ Each subscription is scoped to a single Track and starts/ends at a Group boundar
 A subscriber chooses the priority of each subscription, dictating which Track arrives first during congestion.
 
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
+This is often done with a "catalog" that lists all available tracks and their properties.
 
 ### Group
 A Group is an ordered stream of Frames within a Track.
 
-A Group may be served via a QUIC stream or datagram, depending on the subscription.
+A Group may be served via a QUIC stream or datagram, chosen by the subscriber.
 If the Group is dropped for any reason, a subscriber may FETCH it again starting at a given byte offset.
 
 ### Frame
 A Frame is a payload of bytes within a Group.
 
-Frames currently only provides framing, hence the name.
-Framing is useful in some applications but can also be redundant or increase memory usage, as the size must be known upfront.
-
-Frame will be removed in a future version of the draft and delegated to a higher layer.
-However, it's useful when being compared to an Object in MoqTransport.
+A frame is used to represent a single moment in time.
+It consists of a payload with a size prefix so all data must be buffered upfront.
 
 ## Streams vs Datagrams
 MoqTransfork supports two primary methods of transmitting data: QUIC streams and datagrams.
