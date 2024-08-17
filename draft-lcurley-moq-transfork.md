@@ -58,15 +58,10 @@ The appendix contains a list of high level differences between MoqTransport and 
 
 
 # Concepts
-MoqTransfork consists of a WebTransport session that is used to publish and/or subscribe to multiple live tracks.
-To facilitate joining in the middle, a track can be subdivided into independent "groups" and further into "frames".
-See Object Model for a full overview.
+## Overview 
+MoqTransfork consists of a WebTransport session that is used to publish and/or subscribe to "tracks" within a "broadcast".
+To facilitate joining in the middle, a tracks are subdivided into independent "groups" and further into "frames".
 
-During congestion, only the most important data is transmitted while the rest is starved.
-The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
-Any data that is excessively starved may be dropped rather than block the live stream.
-
-## Object Model
 The MoqTransfork object model consists of:
 
 - **Broadcast**: A collection of Tracks from a single producer.
@@ -74,7 +69,7 @@ The MoqTransfork object model consists of:
 - **Group**: A series of Frames within a Track, served in order.
 - **Frame**: A sized payload of bytes within a Group.
 
-### Broadcast
+## Broadcast
 A Broadcast is a collection of tracks from a single producer, identified by a unique name within the session.
 
 Each subscription is scoped to a single Track within Broadcast.
@@ -85,7 +80,7 @@ A publisher can advertise available broadcasts via an ANNOUNCE message.
 Alternatively, the application can discover broadcasts via an out-of-band mechanism.
 
 
-### Track
+## Track
 A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
 
 Each subscription is scoped to a single Track and starts/ends at a Group boundary.
@@ -94,32 +89,26 @@ A subscriber chooses the priority of each subscription, dictating which Track ar
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
 This is often done with a "catalog" that lists all available tracks and their properties.
 
-### Group
+## Group
 A Group is an ordered stream of Frames within a Track.
 
 A Group may be served via a QUIC stream or datagram, chosen by the subscriber.
 If the Group is dropped for any reason, a subscriber may FETCH it again starting at a given byte offset.
 
-### Frame
+## Frame
 A Frame is a payload of bytes within a Group.
 
 A frame is used to represent a single moment in time.
 It consists of a payload with a size prefix so all data must be buffered upfront.
 
-## Streams vs Datagrams
-MoqTransfork supports two primary methods of transmitting data: QUIC streams and datagrams.
-The difference between the two is subtle but important.
+## Congestion
+A media protocol can only be considered "live" if it can handle degraded network congestion.
+MoqTransfork handles this by prioritizing the most important media while the remainder is starved.
 
-Delivering a Group via a stream ensures the Group is fully delivered or explicitly dropped.
-QUIC streams do not have an upfront size, allowing the Group to be transmitted in Frame chunks over time until a STREAM_FIN marker.
-This is the preferred mechanism for delivering Groups as the QUIC library will automatically provide fragmentation, retransmissions, and flow control.
+The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
+Any data that is excessively starved may be dropped rather than block the live stream.
 
-Delivering a Group via a datagram instead means a Group will be transmitted once and can be silently dropped for any reason.
-Each Group MUST have an upfront size that is smaller than network MTU, limiting them in both size and duration.
-These restrictions allow the Group to be delivered with less overhead than a stream (~10 bytes per group) which is significant for some real-time use-cases.
-
-The subscriber chooses if a subscription is served via streams (`SUBSCRIBE`) or datagrams (`SUBSCRIBE_DATAGRAMS`).
-A publisher should support both modes as they are nearly identical.
+## Object Model
 
 
 # Workflow
@@ -172,13 +161,11 @@ Streams may only be created by the indicated role, otherwise the session MUST be
 |------|-----------|------------|
 | 0x1  | Announce  | Publisher  |
 |------|-----------|------------|
-| 0x2  | Subscribe (Streams)    | Subscriber |
-|------|------------------------|------------|
-| 0x3  | Subscribe (Datagrams)  | Subscriber |
+| 0x2  | Subscribe | Subscriber |
 |------|-----------|------------|
-| 0x4  | Fetch     | Subscriber |
+| 0x3  | Fetch     | Subscriber |
 |------|-----------|------------|
-| 0x5  | Info      | Subscriber |
+| 0x4  | Info      | Subscriber |
 |------|-----------|------------|
 
 
@@ -205,23 +192,18 @@ A future draft may introduce a mechanism to discover broadcasts matching a prefi
 
 ### Subscribe
 A subscriber can open a Subscribe Stream to request a named track within a broadcast.
-The Stream Type indicates if the subscription is served via QUIC streams or datagrams.
 
 The SUBSCRIBE message contains a requested Broadcast and Track.
 It also contains prioritization information and a range of Groups, all of which MAY be updated by the subscriber via a SUBSCRIBE_UPDATE message.
 The subscription is active until the either endpoint closes or resets the stream.
 
 The subscriber MUST start a Info Stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
-The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages (streams only).
+The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages.
 A publisher MAY reset the stream at any point if it is unable to serve the subscription.
 
-**When QUIC streams are used**, the publisher MUST transmit a complete Group Stream or a GROUP_DROPPED message for each Group within the subscription range.
+The publisher MUST transmit a complete Group Stream or a GROUP_DROPPED message for each Group within the subscription range.
 This means the publisher MUST transmit a GROUP_DROPPED if a Group Stream is reset.
 The subscriber SHOULD close the subscription when all GROUP and GROUP_DROP messages have been received, and the publisher MAY close the subscription after all messages have been acknowledged.
-
-**When QUIC datagrams are used**, the publisher MAY transmit a Group/Frame Datagram for each Group within the subscription range.
-The publisher MUST NOT transmit a GROUP_DROPPED message.
-The publisher SHOULD close the subscription after all Group/Frame Datagrams have been transmitted, and the subscriber MAY close the subscription after all Groups have been received.
 
 
 ### Fetch
@@ -262,26 +244,6 @@ An application MAY use zero length Group or Frames to signal gaps.
 Both the publisher and subscriber MAY reset the stream at any time.
 When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
 A future version of this draft may utilize reliable reset instead.
-
-
-## Datagrams
-Datagrams are used for subscription data.
-
-|------|--------|-----------|
-| ID   | Type   | Role      |
-|-----:|:-------|-----------|
-| 0x0  | Group  | Publisher |
-|------|--------|-----------|
-| 0x1  | Frame  | Publisher |
-|------|--------|-----------|
-
-### Group Datagram
-A Group Datagram consists of a GROUP message followed by one or more FRAME messages.
-These contents are identical to a Group Stream.
-
-### Frame Datagram
-A Frame Datagram consists of a GROUP message followed by the Frame Payload.
-This saves 1-2 bytes by skipping the FRAME header when there's a only single Frame, as the datagram itself contains a length.
 
 
 # Encoding
@@ -533,6 +495,7 @@ FRAME Message {
 An application specific payload.
 A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
 
+
 # Extensions
 SESSION_CLIENT and SESSION_SERVER have a flexible encoding to facilitate extension negotiation without causing breaking changes.
 
@@ -577,6 +540,7 @@ Notable changes between versions of this draft.
 - Moved Expires from GROUP to SUBSCRIBE
 - Added FETCH_UPDATE
 - Added ROLE=Any
+- Removed datagram support 
 
 ## moq-transfork-00
 Based on moq-transport-03
@@ -587,27 +551,19 @@ Couldn't help it.
 - Renamed Track Namespace to Broadcast
 - Renamed Object to Frame
 
+### Stream per Group
+The MoQ WG couldn't agree on how to utilize QUIC streams, so the compromise was to support multiple modes and let the application choose.
+This is a headache for too many reasons to list.
+MoqTransfork only "supports" a stream per group.
 
 ### Subscriber's Choice
 MoqTransfork moves most decision making to the subscriber, so a single publisher can support multiple diverse subscribers.
 The publisher provides a default value to resolve conflicts when deduplicating.
 
-- Removed Delivery Preference (publisher choice)
--- Stream per Track
--- Stream per Group
--- Stream per Object
--- Datagram per Object
-- Added Subscribe Mode (subscriber choice)
--- Stream per Group
--- Datagram per Group
-- Removed Stream priority (publisher choice)
-- Added Subscribe Track Priority (subscriber choice)
-- Added Subscribe Group Order (subscriber choice)
-- Added Group Expires (subscriber and publisher choice)
-
 ### Control Streams
 Transactions like Announce and Subscribe use their own control stream, inheriting the stream state machine for error handling.
 
+This replaces excessive message types in MoqTransport:
 - Removed ANNOUNCE_ERROR
 - Removed ANNOUNCE_DONE
 - Removed UNANNOUNCE
@@ -617,23 +573,21 @@ Transactions like Announce and Subscribe use their own control stream, inheritin
 - Removed UNSUBSCRIBE
 
 ### Unambiguous Delivery
-The subscriber now knows if a group/frame will be delivered or was dropped.
+With MoqTransfork, the subscriber knows if a group/frame will be delivered or was dropped.
 
 - Group Sequences are sequential
 - All sequences within the SUBSCRIBE range are delivered or dropped.
 - GROUP_DROP when a group is dropped.
+
+### Fetch via Offset
+A reconnecting subscriber can request the retransmission of a group/stream at a given byte offset.
+Resumption in MoqTransport is more complicated and can only occur at object/group boundaries.
 
 ### Track INFO
 Added a mechanism to request information about the current track state.
 
 - Added INFO_REQUEST and INFO
 - Replaced SUBSCRIBE_OK with INFO
-
-### Fetch via Offset
-A reconnecting subscriber can request the retransmission of a group/stream at a given byte offset.
-
-- Added FETCH.
-- Removed Object ID.
 
 
 # Appendix: Media Use-Cases
@@ -721,11 +675,11 @@ Unlike video, audio is simple and yet has perhaps more potential for optimizatio
 Audio samples are very small and for the sake of compression, are grouped into a frame.
 This depends on the codec and the sample rate but each frame is typically 10-50ms of audio.
 
-Audio frames are independent and ordered, again making them a good fit for QUIC streams.
-Each audio frame can be transmitted as a GROUP with a single FRAME.
+Audio frames are independent, which means they map nicely to MoqTransfork Groups.
+Each audio frame should be transmitted as a GROUP with a single FRAME.
 
 ### Groups
-It may also be desirable to group audio frames into larger units.
+If latency is not a concern, audio groups can be combined to reduce overhead at the cost of some head-of-line blocking.
 
 For example, if an application wants reliable playback and A/V synchronization, then audio and video could be aligned.
 An application could then subscribe to video and audio starting at group X for both tracks, instead of trying to maintain a mapping between the two based on timestamp.
@@ -745,8 +699,9 @@ In MoqTransfork, each FEC packet is transmitted as a separate GROUP with a singl
 A real-time subscriber issues a `SUBSCRIBE` with an aggressive `Group Expires` value in the milliseconds range.
 The publisher will drop any Groups that have not been transmitted or acknowledged within this time frame, potentially causing them to be lost.
 
-The subscriber can choose if it wants to use datagrams or streams for a subscription.
-I recommend using streams if the RTT is smaller than `Group Expires`, as it gives retransmissions a chance even when FEC is used.
+Normally, FEC is performed by transmitting individual packets once as datagrams.
+However, it's strictly better to use QUIC streams when `Group Expires` is smaller than the RTT, and inconsequential when it's not (~10 more bytes).
+This enables retransmitting lost packets on short hops and otherwise relying on FEC for long hops.
 
 
 ## Metadata
