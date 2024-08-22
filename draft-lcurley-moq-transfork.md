@@ -44,23 +44,28 @@ I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-However, there are practical and conceptual flaws with MoqTransport that need to be addressed.
-It's been very difficult to design an experimental protocol via committee and we've yet to align on the most critical property of the transport... how to utilize QUIC.
-I've spent too much time arguing on Github and implementing the eventual "compromise", often distinct and incompatible modes. 
+There are practical and conceptual flaws with MoqTransport that should be addressed.
+However, it's been difficult to design an experimental protocol via committee.
+Despite years of arguments in person and on GitHub, we've yet to align on the most critical property of the transport... how to utilize QUIC.
+The result is an unwieldy "compromise", consisting of multiple incompatible modes that are difficult to support or explain. 
 
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
-This fork is meant to be constructive; an alternative vision.
-I'd like to try leading by example, demonstrating how to support real media use-cases while simplifying the protocol.
-The working group will keep making progress and I hope many of these ideas are incorporated.
+This fork is meant to be a constructive alternative vision.
+This is my attempt to lead by example, demonstrating how to support real media use-cases while simplifying the protocol.
+The working group will keep making progress and hopefully many of these ideas will be incorporated.
 
 The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
 
 
 # Concepts
-## Overview 
-MoqTransfork consists of a WebTransport session that is used to publish and/or subscribe to "tracks" within a "broadcast".
-To facilitate joining in the middle, a tracks are subdivided into independent "groups" and further into "frames".
+MoqTransfork utilizes a WebTransport session, which itself is a "thin" layer on top of a QUIC connection.
+The MoqTransfork session is used to publish and/or subscribe to "tracks" within a "broadcast".
+To facilitate joining in the middle of a live track, they are subdivided into independent "groups" and further into "frames".
+
+The application determines how to split data into broadcasts/tracks/groups/frames.
+MoqTransfork is instead responsible for the networking and deduplication utilizing rules encoded in headers.
+This provides robust and generic one-to-many transmission, even for latency sensitive applications.
 
 The MoqTransfork object model consists of:
 
@@ -78,7 +83,6 @@ For example, a "video" track and "audio" track may use synchronized timestamps.
 
 A publisher can advertise available broadcasts via an ANNOUNCE message.
 Alternatively, the application can discover broadcasts via an out-of-band mechanism.
-
 
 ## Track
 A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
@@ -107,9 +111,6 @@ MoqTransfork handles this by prioritizing the most important media while the rem
 
 The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
 Any data that is excessively starved may be dropped rather than block the live stream.
-
-## Object Model
-
 
 # Workflow
 This section outlines the flow of messages within a MoqTransfork session.
