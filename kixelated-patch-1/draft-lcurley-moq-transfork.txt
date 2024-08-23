@@ -4,8 +4,8 @@
 
 moq                                                            L. Curley
 Internet-Draft                                                   Discord
-Intended status: Informational                               27 May 2024
-Expires: 28 November 2024
+Intended status: Informational                            23 August 2024
+Expires: 24 February 2025
 
 
                       Media over QUIC - Transfork
@@ -13,7 +13,13 @@ Expires: 28 November 2024
 
 Abstract
 
-   TODO Abstract
+   MoqTransfork is a live pub/sub transport utilizing QUIC.  The
+   protocol is designed to serve an unbounded number of viewers with
+   different latency/quality targets: the entire spectrum between real-
+   time and VOD.  MoqTransfork itself is media agnostic, containing only
+   the necessary metadata to relay live tracks optimally during
+   congestion.  The specific media encoding (ex. container+codec) is
+   delegated to a higher layer and the broadcaster/viewer endpoints.
 
 Discussion Venues
 
@@ -41,7 +47,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 28 November 2024.
+   This Internet-Draft will expire on 24 February 2025.
 
 Copyright Notice
 
@@ -61,36 +67,28 @@ Table of Contents
 
    1.  Conventions and Definitions
    2.  Fork
-     2.1.  Object Model
-     2.2.  Prioritization
-     2.3.  Control Streams
-     2.4.  Byte Offsets
-     2.5.  Datagrams
-     2.6.  Use-Cases
    3.  Concepts
-     3.1.  Object Model
-       3.1.1.  Broadcast
-       3.1.2.  Track
-       3.1.3.  Group
-       3.1.4.  Frame
-     3.2.  Streams vs Datagrams
+     3.1.  Broadcast
+     3.2.  Track
+     3.3.  Group
+     3.4.  Frame
+     3.5.  Congestion
    4.  Workflow
-     4.1.  Establishment
-     4.2.  Bidirectional Streams
-       4.2.1.  Session
-       4.2.2.  Announce
-       4.2.3.  Subscribe
-       4.2.4.  Fetch
-       4.2.5.  Info
-     4.3.  Unidirectional
-       4.3.1.  Group
-     4.4.  Datagrams
-       4.4.1.  Group Datagram
-       4.4.2.  Frame Datagram
+     4.1.  Connection
+     4.2.  Termination
+     4.3.  Handshake
+     4.4.  Bidirectional Streams
+       4.4.1.  Session
+       4.4.2.  Announce
+       4.4.3.  Subscribe
+       4.4.4.  Fetch
+       4.4.5.  Info
+     4.5.  Unidirectional
+       4.5.1.  Group
    5.  Encoding
      5.1.  SESSION_CLIENT
      5.2.  SESSION_SERVER
-     5.3.  SESSION_INFO
+     5.3.  SESSION_UPDATE
      5.4.  ANNOUNCE
      5.5.  ANNOUNCE_OK
      5.6.  SUBSCRIBE
@@ -98,37 +96,50 @@ Table of Contents
      5.8.  INFO
      5.9.  INFO_REQUEST
      5.10. FETCH
-     5.11. GROUP
-     5.12. GROUP_DROP
-     5.13. FRAME
-   6.  Appendix: Media Use-Cases
-     6.1.  Video
-       6.1.1.  Group of Pictures
-       6.1.2.  Layers
-       6.1.3.  Non-Reference Frames
-     6.2.  Audio
-       6.2.1.  Frames
-       6.2.2.  Groups
-       6.2.3.  FEC
-     6.3.  Metadata
-       6.3.1.  Catalog
-       6.3.2.  Timeline
-       6.3.3.  Interaction
-     6.4.  Latency
-       6.4.1.  Real-Time
-       6.4.2.  Unreliable Live
-       6.4.3.  Reliable Live
-       6.4.4.  VOD / DVR
-       6.4.5.  Upstream
-     6.5.  Broadcast
-       6.5.1.  ABR
-       6.5.2.  SVC
-     6.6.  Conferences
-       6.6.1.  Discovery
-       6.6.2.  Participants
-   7.  Security Considerations
-   8.  IANA Considerations
-   9.  Normative References
+     5.11. FETCH_UPDATE
+     5.12. GROUP
+     5.13. GROUP_DROP
+     5.14. FRAME
+   6.  Extensions
+     6.1.  Role
+   7.  Appendix: Changelog
+     7.1.  moq-transfork-01
+     7.2.  moq-transfork-00
+       7.2.1.  Bikeshedding
+       7.2.2.  Stream per Group
+       7.2.3.  Subscriber's Choice
+       7.2.4.  Control Streams
+       7.2.5.  Unambiguous Delivery
+       7.2.6.  Fetch via Offset
+       7.2.7.  Track INFO
+   8.  Appendix: Media Use-Cases
+     8.1.  Video
+       8.1.1.  Group of Pictures
+       8.1.2.  Layers
+       8.1.3.  Non-Reference Frames
+     8.2.  Audio
+       8.2.1.  Frames
+       8.2.2.  Groups
+       8.2.3.  FEC
+     8.3.  Metadata
+       8.3.1.  Catalog
+       8.3.2.  Timeline
+       8.3.3.  Interaction
+     8.4.  Latency
+       8.4.1.  Real-Time
+       8.4.2.  Unreliable Live
+       8.4.3.  Reliable Live
+       8.4.4.  VOD / DVR
+       8.4.5.  Upstream
+     8.5.  Broadcast
+       8.5.1.  ABR
+       8.5.2.  SVC
+     8.6.  Conferences
+       8.6.1.  Discovery
+       8.6.2.  Participants
+   9.  Security Considerations
+   10. IANA Considerations
+   11. Normative References
    Acknowledgments
    Author's Address
 
@@ -151,133 +162,39 @@ Table of Contents
    with current live media protocols.  I fully support the goals of the
    working group and the IETF process.
 
-   However, there are some flaws with MoqTransport that I'd like to
-   address.  It's been years and we're still unable to align on the most
-   critical property of the transport... how to utilize QUIC.  The draft
-   supports multiple different approaches, but it does so by leaving
-   important properties dynamic or undefined.  In our RUSH to
-   standardize a protocol, the QUICR solutions have led to WARP in
-   ideals.
+   There are practical and conceptual flaws with MoqTransport that
+   should be addressed.  However, it's been difficult to design an
+   experimental protocol via committee.  Despite years of arguments in
+   person and on GitHub, we've yet to align on the most critical
+   property of the transport... how to utilize QUIC.  The result is an
+   unwieldy "compromise", consisting of multiple incompatible modes that
+   are difficult to support or explain.
 
-   This fork is meant to be constructive; an alternative vision.  We've
-   been arguing about some of these issues for years now and I don't
-   expect that will change any time soon.  I'd like to try leading by
-   example, demonstrating that it's possible to simplify the protocol
-   and still support a documented set of use-cases.
+   In our RUSH to standardize a protocol, the QUICR solutions have led
+   to WARP in ideals.
 
-   Here's an overview of the notable differences between MoqTransport
-   and MoqTransfork:
+   This fork is meant to be a constructive alternative vision.  This is
+   my attempt to lead by example, demonstrating how to support real
+   media use-cases while simplifying the protocol.  The working group
+   will keep making progress and hopefully many of these ideas will be
+   incorporated.
 
-2.1.  Object Model
-
-   The object model is an abstraction exposed to the application,
-   forming the basis of the transport API.
-
-   The MoqTransport object model vaguely maps to media concepts, where a
-   Group is a Video GoP and an Object is a Video Frame.  However,
-   there's no agreed upon way to utilize QUIC, leading to the compromise
-   that the publisher chooses a "delivery preference" for each track.
-   As a the result the properties of the object model change dynamically
-   at runtime, as the properties of a QUIC stream (or datagram) are
-   moved between a track, group, or object.  The number of permutations
-   quickly becomes unmanageable and every conversion has to be caveated
-   with "when using a stream per X".
-
-   The MoqTransfork object model is instead static and maps directly to
-   QUIC.  A Group is always an ordered set of bytes, served via a QUIC
-   stream or datagram depending on the subscription.  This
-   simplification is able to support all of the documented use-cases;
-   see the Appendix.
-
-2.2.  Prioritization
-
-   Prioritization is important for low-latency, ensuring the publisher
-   sends the most important media first during congestion.
-
-   MoqTransport uses producer chosen priorities via send order.  As the
-   original proponent of this approach, I'm ashamed to admit that I was
-   wrong.  Reality is more nuanced; both the subscriber and publisher
-   need to work together.
-
-   MoqTransfork instead delegates the priority decision for the last
-   mile to the subscriber.  This is done via a Track Priority and Group
-   Order field within SUBSCRIBE.  If there's a single viewer, then this
-   priority can be used all the way to origin.  However when there are
-   multiple conflicting viewers, then a relay should use the producer's
-   preference as advertised in INFO.
-
-2.3.  Control Streams
-
-   At the core of any transport are control messages.
-
-   MoqTransport control messages are fine, but have the potential for
-   head-of-line blocking as they share a single stream.  There's also
-   just a lot of messages for state transitions such as UNSUBSCRIBE,
-   SUBSCRIBE_ERROR, SUBSCRIBE_DONE, etc.
-
-   MoqTransfork continues the trend of leveraging QUIC with separate
-   control streams, like one stream per subscription.  These control
-   streams are terminated when endpoints close or reset (including an
-   error code) the stream in order to directly leverage QUIC's stream
-   state machine.  This removes any messages that start with UN or end
-   with _DONE, _ERROR, _RESET, etc.
-
-2.4.  Byte Offsets
-
-   When a connection or subscription is severed, it's often desirable to
-   resume where it left off.
-
-   MoqTransport implements this via subscriptions that can start/end at
-   an object ID within a group.  This is an okay approach, however it
-   results in redownloading partial objects and results in a fragmented
-   cache at parsed boundaries.
-
-   MoqTransfork instead utilizes FETCH to serve incomplete Groups
-   starting at a byte offset.  QUIC streams are tail dropped when reset
-   so there's no need for a more complex mechanism.  This means a relay
-   doesn't need to parse frame/object boundaries and it can even forward
-   STREAM frames out-of-order.
-
-2.5.  Datagrams
-
-   Datagrams are useful when payloads are small, overhead is important,
-   and the desired latency is below the RTT.
-
-   MoqTransport supports sending objects as QUIC datagrams via a
-   publisher track preference.  This can work for real-time viewers but
-   results in a poor experience for higher latency viewers subscribed to
-   the same track.
-
-   MoqTransfork instead lets the subscriber indicate if it wants to
-   receive a subscription via streams or datagrams.  Datagrams should
-   only be used when Groups are smaller than the MTU and the desired
-   latency is smaller than the RTT.  In doing so, Groups sent via
-   datagrams may be silently dropped for whatever reason, saving a few
-   bytes on the wire (~10 per Group) which is desirable for audio use-
-   cases.
-
-2.6.  Use-Cases
-
-   It's boring, but you should write down what you're trying to
-   accomplish before you start designing a protocol especially by
-   committee.
-
-   MoqTransport is intentionally vague and doesn't mention any use-
-   cases.  This has caused unnecessary or incomplete features, as it's
-   impossible to argue against a feature or suggest alternatives when
-   "some application might need it".
-
-   MoqTransfork instead includes an Appendix contains a number of media
-   use-cases and recommended approaches that are by no means required or
-   comprehensive.  This also serves to illustrate the careful layering
-   of Media over QUIC which has otherwise not been documented.
+   The appendix contains a list of high level differences between
+   MoqTransport and MoqTransfork.
 
 3.  Concepts
 
-   Many of the concepts are borrowed from MoqTransport so I'm not going
-   to fully rehash them here; a future draft will.
+   MoqTransfork utilizes a WebTransport session, which itself is a
+   "thin" layer on top of a QUIC connection.  The MoqTransfork session
+   is used to publish and/or subscribe to "tracks" within a "broadcast".
+   To facilitate joining in the middle of a live track, they are
+   subdivided into independent "groups" and further into "frames".
 
-3.1.  Object Model
+   The application determines how to split data into
+   broadcasts/tracks/groups/frames.  MoqTransfork is instead responsible
+   for the networking and deduplication utilizing rules encoded in
+   headers.  This provides robust and generic one-to-many transmission,
+   even for latency sensitive applications.
 
    The MoqTransfork object model consists of:
 
@@ -289,19 +206,21 @@ Table of Contents
 
    *  *Frame*: A sized payload of bytes within a Group.
 
-3.1.1.  Broadcast
+3.1.  Broadcast
 
    A Broadcast is a collection of tracks from a single producer,
    identified by a unique name within the session.
 
-   Each subscription is scoped to a single Broadcast and Track within
-   it.  A publisher may advertise available broadcasts via an ANNOUNCE
-   message or an out-of-band mechanism.
+   Each subscription is scoped to a single Track within Broadcast.  The
+   application determines if tracks within a broadcast are correlated.
+   For example, a "video" track and "audio" track may use synchronized
+   timestamps.
 
-   The MoqTransport draft refers to this as "track namespace".  I
-   couldn't help but bikeshed.
+   A publisher can advertise available broadcasts via an ANNOUNCE
+   message.  Alternatively, the application can discover broadcasts via
+   an out-of-band mechanism.
 
-3.1.2.  Track
+3.2.  Track
 
    A Track is a series of Groups within a Broadcast, identified by a
    unique name within the Broadcast.
@@ -311,50 +230,34 @@ Table of Contents
    subscription, dictating which Track arrives first during congestion.
 
    There is currently no way to discover tracks within a broadcast; it
-   must be negotiated out-of-band.
+   must be negotiated out-of-band.  This is often done with a "catalog"
+   that lists all available tracks and their properties.
 
-3.1.3.  Group
+3.3.  Group
 
    A Group is an ordered stream of Frames within a Track.
 
-   A Group may be served via a QUIC stream or datagram, depending on the
-   subscription.  If the Group is dropped for any reason, a subscriber
-   may FETCH it again starting at a given byte offset.
+   A Group may be served via a QUIC stream or datagram, chosen by the
+   subscriber.  If the Group is dropped for any reason, a subscriber may
+   FETCH it again starting at a given byte offset.
 
-3.1.4.  Frame
+3.4.  Frame
 
    A Frame is a payload of bytes within a Group.
 
-   Frames currently only provides framing, hence the name.  Framing is
-   useful in some applications but can also be redundant or increase
-   memory usage, as the size must be known upfront.
+   A frame is used to represent a single moment in time.  It consists of
+   a payload with a size prefix so all data must be buffered upfront.
 
-   Frame will be removed in a future version of the draft and delegated
-   to a higher layer.  However, it's useful when being compared to an
-   Object in MoqTransport.
+3.5.  Congestion
 
-3.2.  Streams vs Datagrams
+   A media protocol can only be considered "live" if it can handle
+   degraded network congestion.  MoqTransfork handles this by
+   prioritizing the most important media while the remainder is starved.
 
-   MoqTransfork supports two primary methods of transmitting data: QUIC
-   streams and datagrams.  The difference between the two is subtle but
-   important.
-
-   Delivering a Group via a stream ensures the Group is fully delivered
-   or explicitly dropped.  QUIC streams do not have an upfront size,
-   allowing the Group to be transmitted in Frame chunks over time until
-   a STREAM_FIN marker.  This is the preferred mechanism for delivering
-   Groups as the QUIC library will automatically provide fragmentation,
-   retransmissions, and flow control.
-
-   Delivering a Group via a datagram instead means a Group will be
-   transmitted once and can be silently dropped for any reason.  Each
-   Group MUST have an upfront size that is smaller than network MTU,
-   limiting them in both size and duration.  These restrictions allow
-   the Group to be delivered with less overhead than a stream (~10 bytes
-   per group) which is significant for some real-time use-cases.
-
-   A subscriber is responsible for choosing if a subscription is served
-   via streams or datagrams.
+   The importance of each broadcast/track/group/frame is signaled by the
+   subscriber and the publisher will attempt to obey it.  Any data that
+   is excessively starved may be dropped rather than block the live
+   stream.
 
 4.  Workflow
 
@@ -362,64 +265,83 @@ Table of Contents
    session.  See the section for Messages section for the specific
    encoding.
 
-4.1.  Establishment
+4.1.  Connection
 
-   MoqTransfork runs on top of either WebTransport or QUIC.
+   MoqTransfork runs on top of WebTransport.  WebTransport is a layer on
+   top of QUIC and HTTP/3, required for web support.  The API is nearly
+   identical to QUIC, however notably lacks stream IDs and has fewer
+   available error codes.
 
-   After a connection is established, the endpoints perform a
-   MoqTransfork handshake to negotiate the version and other parameters.
-   The client opens the Session Stream and sends a SESSION_CLIENT
-   message and the server replies with a SESSION_SERVER message.
+4.2.  Termination
 
-4.2.  Bidirectional Streams
+   QUIC streams can be closed or reset with an error code, while
+   bidirectional streams have an independent send and receive direction.
+   Rather than deal with half-open states, MoqTransfork combines both
+   sides.  If an endpoint closes the send direction of a stream, it also
+   closes the recv direction.
+
+   To terminate a stream, an endpoint closes (STREAM_FIN) or resets
+   (RESET_STREAM) the send direction.  Any messages/data on a closed
+   stream will still be delivered, while a reset results in immediate
+   termination.  An endpoint MAY close the recv direction with the same
+   error code.
+
+   An endpoint MUST monitor the recv direction for errors.  When the
+   recv direction is closed/reset, the endpoint MUST close/reset the
+   send direction.
+
+   An endpoint MAY close the session by closing/resetting the Session
+   Stream.  An endpoint MUST close the connection (via CONNECTION_CLOSE)
+   on a fatal encoding error or protocol violation.
+
+4.3.  Handshake
+
+   After a connection is established, the client opens the Session
+   Stream and sends a SESSION_CLIENT message and the server replies with
+   a SESSION_SERVER message.  The session is active until either
+   endpoint closes or resets the Session Stream.
+
+   This session handshake is used to negotiate the MoqTransfork version
+   and any extensions.  See the Extension section for more information.
+
+4.4.  Bidirectional Streams
 
    Bidirectional streams are primarily used for control streams.
-
-   Note that QUIC bidirectional streams have both a send and recvieve
-   direction that can be closed or reset (with an error code)
-   independently.  This is used to indicate completion or errors
-   respectively.
 
    The first byte of each stream indicates the Stream Type.  Streams may
    only be created by the indicated role, otherwise the session MUST be
    closed with a ROLE_VIOLATION.
 
-               +======+=======================+============+
-               | Byte | Type                  | Role       |
-               +======+=======================+============+
-               |  0x0 | Session               | Client     |
-               +------+-----------------------+------------+
-               |  0x1 | Announce              | Publisher  |
-               +------+-----------------------+------------+
-               |  0x2 | Subscribe (Streams)   | Subscriber |
-               +------+-----------------------+------------+
-               |  0x3 | Subscribe (Datagrams) | Subscriber |
-               +------+-----------------------+------------+
-               |  0x4 | Fetch                 | Subscriber |
-               +------+-----------------------+------------+
-               |  0x5 | Info                  | Subscriber |
-               +------+-----------------------+------------+
+                     +=====+===========+============+
+                     |  ID | Type      | Role       |
+                     +=====+===========+============+
+                     | 0x0 | Session   | Client     |
+                     +-----+-----------+------------+
+                     | 0x1 | Announce  | Publisher  |
+                     +-----+-----------+------------+
+                     | 0x2 | Subscribe | Subscriber |
+                     +-----+-----------+------------+
+                     | 0x3 | Fetch     | Subscriber |
+                     +-----+-----------+------------+
+                     | 0x4 | Info      | Subscriber |
+                     +-----+-----------+------------+
 
-                                  Table 1
+                                 Table 1
 
-4.2.1.  Session
+4.4.1.  Session
 
    The Session stream contains all messages that are session level.
 
    The client MUST open a single Session Stream immediately after
    establishing the QUIC/WebTransport session.  The client sends a
    SESSION_CLIENT message and the server replies with a SESSION_SERVER
-   message.
-
-   Afterwards, both endpoints MAY send SESSION_INFO messages containing
-   information about the session.  The endpoint SHOULD send an updated
-   SESSION_INFO message, such as after a significant change in the
-   session bitrate.
+   message.  Afterwards, both endpoints SHOULD send SESSION_UPDATE
+   messages, such as after a significant change in the session bitrate.
 
    The session remains active until the Session Stream is closed or
    reset by either endpoint.
 
-4.2.2.  Announce
+4.4.2.  Announce
 
    A publisher can open an Announce Stream to advertise a broadcast.
    This is optional, as the application determine the broadcast name
@@ -434,11 +356,10 @@ Table of Contents
    ANNOUNCE message downstream.  A future draft may introduce a
    mechanism to discover broadcasts matching a prefix.
 
-4.2.3.  Subscribe
+4.4.3.  Subscribe
 
    A subscriber can open a Subscribe Stream to request a named track
-   within a broadcast.  The Stream Type indicates if the subscription is
-   served via QUIC streams or datagrams.
+   within a broadcast.
 
    The SUBSCRIBE message contains a requested Broadcast and Track.  It
    also contains prioritization information and a range of Groups, all
@@ -449,38 +370,33 @@ Table of Contents
    The subscriber MUST start a Info Stream with a SUBSCRIBE message
    followed by any number SUBSCRIBE_UPDATE messages.  The publisher MUST
    reply with an INFO message followed by any number of GROUP_DROPPED
-   messages (streams only).  A publisher MAY reset the stream at any
-   point if it is unable to serve the subscription.
+   messages.  A publisher MAY reset the stream at any point if it is
+   unable to serve the subscription.
 
-   *When QUIC streams are used*, the publisher MUST transmit a complete
-   Group Stream or a GROUP_DROPPED message for each Group within the
-   subscription range.  This means the publisher MUST transmit a
-   GROUP_DROPPED if a Group Stream is reset.  The subscriber SHOULD
-   close the subscription when all GROUP and GROUP_DROP messages have
-   been received, and the publisher MAY close the subscription after all
-   messages have been acknowledged.
+   The publisher MUST transmit a complete Group Stream or a
+   GROUP_DROPPED message for each Group within the subscription range.
+   This means the publisher MUST transmit a GROUP_DROPPED if a Group
+   Stream is reset.  The subscriber SHOULD close the subscription when
+   all GROUP and GROUP_DROP messages have been received, and the
+   publisher MAY close the subscription after all messages have been
+   acknowledged.
 
-   *When QUIC datagrams are used*, the publisher MAY transmit a Group/
-   Frame Datagram for each Group within the subscription range.  The
-   publisher MUST NOT transmit a GROUP_DROPPED message.  The publisher
-   SHOULD close the subscription after all Group/Frame Datagrams have
-   been transmitted, and the subscriber MAY close the subscription after
-   all Groups have been received.
-
-4.2.4.  Fetch
+4.4.4.  Fetch
 
    A subscriber can open a Fetch Stream to receive a single Group at a
    specified offset.  This is primarily used to recover from an abrupt
    stream termination, causing the truncation of a Group.
 
-   The subscriber MUST start a Fetch Stream with a FETCH message.  The
-   publisher MUST reply with a GROUP message followed by the rest of a
-   Group Stream, except starting at the specified offset.
+   The subscriber MUST start a Fetch Stream with a FETCH message
+   followed by any number of FETCH_UPDATE messages.  The publisher MUST
+   reply with the contents of a Group Stream, except starting at the
+   specified offset _after_ the GROUP message.  Note that this includes
+   any FRAME messages.
 
    The fetch is active until both endpoints close the stream, or either
    endpoint resets the stream.
 
-4.2.5.  Info
+4.4.5.  Info
 
    A subscriber can open an Info Stream to request information about a
    track.  This is not often necessary as SUBSCRIBE will trigger an INFO
@@ -490,7 +406,7 @@ Table of Contents
    The publisher MUST reply with an INFO message or reset the stream.
    Both endpoints MUST close the stream afterwards.
 
-4.3.  Unidirectional
+4.5.  Unidirectional
 
    Unidirectional streams are used for subscription data.
 
@@ -502,7 +418,7 @@ Table of Contents
 
                                  Table 2
 
-4.3.1.  Group
+4.5.1.  Group
 
    A publisher creates Group Streams in response to a Subscribe Stream.
 
@@ -515,66 +431,42 @@ Table of Contents
    message on the corresponding Subscribe stream.  A future version of
    this draft may utilize reliable reset instead.
 
-4.4.  Datagrams
-
-   Datagrams are used for subscription data.
-
-                        +=====+=======+===========+
-                        |  ID | Type  | Role      |
-                        +=====+=======+===========+
-                        | 0x0 | Group | Publisher |
-                        +-----+-------+-----------+
-                        | 0x1 | Frame | Publisher |
-                        +-----+-------+-----------+
-
-                                  Table 3
-
-4.4.1.  Group Datagram
-
-   A Group Datagram consists of a GROUP message followed by one or more
-   FRAME messages.  These contents are identical to a Group Stream.
-
-4.4.2.  Frame Datagram
-
-   A Frame Datagram consists of a GROUP message followed by the Frame
-   Payload.  This saves 1-2 bytes by skipping the FRAME header when
-   there's a only single Frame, as the datagram itself contains a
-   length.
-
 5.  Encoding
 
    This section covers the encoding of each message.
 
-   Note that none of these message have a type identifier.  The message
-   is determined by the stream type and the current state.
+   Note that these message do not contain a type identifier.  The
+   message type is determined by the stream type and the current state.
 
 5.1.  SESSION_CLIENT
 
-   TODO copy from moq-transport.
+   The client advertises supported versions and any extensions.
 
-   This contains:
-
-   *  supported versions
-
-   *  the client's role
-
-   *  any extensions
+   SESSION_CLIENT Message {
+     Supported Versions Count (i)
+     Supported Version (i)
+     ...
+     Extension Count (i)
+     Extension ID (i)
+     Extension Payload (b)
+     ...
+   }
 
 5.2.  SESSION_SERVER
 
-   TODO copy from moq-transport
+   The server responds with the selected version and any extensions.
 
-   This contains:
+   SESSION_SERVER Message {
+     Selected Version (i)
+     Extension Count (i)
+     Extension ID (i)
+     Extension Payload (b)
+     ...
+   }
 
-   *  the selected version
+5.3.  SESSION_UPDATE
 
-   *  the server's role
-
-   *  any extensions
-
-5.3.  SESSION_INFO
-
-   SESSION_INFO Message {
+   SESSION_UPDATE Message {
      Session Bitrate (i)
    }
 
@@ -610,8 +502,8 @@ Table of Contents
      Track Priority (i)
      Group Order (i)
      Group Expires (i)
-     Group Sequence Min (i)
-     Group Sequence Max (i)
+     Group Min (i)
+     Group Max (i)
    }
 
    *Track Priority*: The transmission priority of the subscription
@@ -626,16 +518,15 @@ Table of Contents
    *Group Expires*: A duration in milliseconds that applies to all
    Groups within the subscription.  The group SHOULD be dropped if this
    duration has elapsed after group has finished, including any time
-   spent cached.  A GROUP's Group Expires value SHOULD be used instead
-   when smaller.
+   spent cached.  The publisher's Group Expires value (via INFO) SHOULD
+   be used instead when smaller.
 
-   *Group Sequence Min*: The minimum group sequence number plus 1.  A
-   value of 0 indicates the latest Group Sequence as determined by the
-   publisher.
+   *Group Min*: The minimum group sequence number plus 1.  A value of 0
+   indicates the latest Group Sequence as determined by the publisher.
 
-   *Group Sequence Max*: The maximum group sequence number plus 1.  A
-   value of 0 indicates there is no maximum and the subscription
-   continues indefinitely.
+   *Group Max*: The maximum group sequence number plus 1.  A value of 0
+   indicates there is no maximum and the subscription continues
+   indefinitely.
 
 5.7.  SUBSCRIBE_UPDATE
 
@@ -645,16 +536,17 @@ Table of Contents
    SUBSCRIBE_UPDATE Message {
      Track Priority (i)
      Group Order (i)
-     Group Sequence Min (i)
-     Group Sequence Max (i)
+     Group Expires (i)
+     Group Min (i)
+     Group Max (i)
    }
 
-   *Group Sequence Min*: The new minimum group sequence, or 0 if there
-   is no update.  This value MUST NOT be smaller than prior SUBSCRIBE
-   and SUBSCRIBE_UPDATE messages.
+   *Group Min*: The new minimum group sequence, or 0 if there is no
+   update.  This value MUST NOT be smaller than prior SUBSCRIBE and
+   SUBSCRIBE_UPDATE messages.
 
-   *Group Sequence Max*: The new maximum group sequence, or 0 if there
-   is no update.  This value MUST NOT be larger than prior SUBSCRIBE or
+   *Group Max*: The new maximum group sequence, or 0 if there is no
+   update.  This value MUST NOT be larger than prior SUBSCRIBE or
    SUBSCRIBE_UPDATE messages.
 
 5.8.  INFO
@@ -662,22 +554,28 @@ Table of Contents
    The INFO message contains the current information about a track.
 
    INFO Message {
-     Latest Group (i)
-     Default Track Priority (i)
-     Default Group Order (i)
+     Track Priority (i)
+     Group Latest (i)
+     Group Order (i)
+     Group Expires (i)
    }
 
-   *Latest Group*: The latest group as currently known by the publisher.
+   *Track Priority*: The priority of this track within the broadcast.
+   Note that this is slightly different than SUBSCRIBE, which is scoped
+   to a session not broadcast.  The publisher SHOULD transmit
+   subscriptions with _lower_ values first during congestion.
+
+   *Group Latest*: The latest group as currently known by the publisher.
    A relay without an active subscription SHOULD forward this request
    upstream
 
-   *Default Track Priority*: The default priority of this track within
-   the broadcast.  Note that this is slightly different than SUBSCRIBE,
-   which is scoped to a session not broadcast.  The publisher SHOULD
-   transmit subscriptions with _lower_ values first during congestion.
+   *Group Order*: The publisher's intended order of the groups within
+   the subscription: none (0), ascending (1), or descending (2).
 
-   *Default Group Order*: The default order of the groups within the
-   subscription: none (0), ascending (1), or descending (2).
+   *Group Expires*: A duration in milliseconds.  The group SHOULD be
+   dropped if this duration has elapsed after group has finished,
+   including any time spent cached.  The Subscriber's Group Expires
+   value SHOULD be used instead when smaller.
 
 5.9.  INFO_REQUEST
 
@@ -708,7 +606,19 @@ Table of Contents
    *Group Offset*: The requested offset in bytes _after_ the GROUP
    message.
 
-5.11.  GROUP
+5.11.  FETCH_UPDATE
+
+   A subscriber can modify a FETCH request with a FETCH_UPDATE message.
+
+   FETCH_UPDATE Message {
+     Track Priority (i)
+   }
+
+   *Track Priority*: The priority of the group relative to all other
+   FETCH and SUBSCRIBE requests within the session.  The publisher
+   should transmit _lower_ values first during congestion.
+
+5.12.  GROUP
 
    The GROUP message contains information about a Group, as well as a
    reference to the subscription being served.
@@ -716,34 +626,28 @@ Table of Contents
    GROUP Message {
      Subscribe ID (i)
      Group Sequence (i)
-     Group Expires (i)
    }
 
-   *Group Expires*: A duration in milliseconds.  The group SHOULD be
-   dropped if this duration has elapsed after group has finished,
-   including any time spent cached.  The SUBSCRIBE Group Expires value
-   SHOULD be used instead when smaller.
-
-5.12.  GROUP_DROP
+5.13.  GROUP_DROP
 
    A publisher transmits a GROUP_DROP message when it is unable to serve
    a group for a SUBSCRIBE.
 
    GROUP_DROP {
-     Group Sequence Start (i)
-     Group Sequence Count (i)
+     Group Start (i)
+     Group Count (i)
      Group Error Code (i)
    }
 
-   *Group Sequence Start*: The sequence number for the first group
-   within the dropped range.
+   *Group Start*: The sequence number for the first group within the
+   dropped range.
 
-   *Group Sequence Count*: The number of additional groups after the
-   first.  This value is 0 when only one group is dropped.
+   *Group Count*: The number of additional groups after the first.  This
+   value is 0 when only one group is dropped.
 
    *Error Code*: An error code indicated by the application.
 
-5.13.  FRAME
+5.14.  FRAME
 
    The FRAME message consists of a length followed by that many bytes.
 
@@ -755,12 +659,136 @@ Table of Contents
    relay MUST NOT inspect or modify the contents unless otherwise
    negotiated.
 
-6.  Appendix: Media Use-Cases
+6.  Extensions
+
+   SESSION_CLIENT and SESSION_SERVER have a flexible encoding to
+   facilitate extension negotiation without causing breaking changes.
+
+   This draft registers some extensions and reserves any IDs smaller
+   than 64 for future drafts.  Other documents MAY introduce additional
+   extensions.
+
+                            +=====+===========+
+                            |  ID | Extension |
+                            +=====+===========+
+                            | 0x0 | Role      |
+                            +-----+-----------+
+
+                                  Table 3
+
+6.1.  Role
+
+   The Role Extension indicates the desired role for the endpoint.  This
+   is useful for indicating intent, such as a client indicating that it
+   will not publish any tracks.
+
+   The Role payload is a single varint indicating the functionality of
+   the sender:
+
+                           +=====+============+
+                           |  ID | Role       |
+                           +=====+============+
+                           | 0x0 | Publisher  |
+                           +-----+------------+
+                           | 0x1 | Subscriber |
+                           +-----+------------+
+                           | 0x2 | Both       |
+                           +-----+------------+
+                           | 0x3 | Any        |
+                           +-----+------------+
+
+                                 Table 4
+
+   If the extension is not present, the default value is Both.  An
+   endpoint MAY close the session with a RequiredExtension error (TODO)
+   if the extension is missing and this default role is incompatible.
+
+7.  Appendix: Changelog
+
+   Notable changes between versions of this draft.
+
+7.1.  moq-transfork-01
+
+   Changes based on implementation experience.
+
+   *  Removed datagram support
+
+   *  Removed native QUIC support.
+
+   *  Moved Expires from GROUP to SUBSCRIBE
+
+   *  Added FETCH_UPDATE
+
+   *  Added ROLE=Any
+
+7.2.  moq-transfork-00
+
+   Based on moq-transport-03
+
+7.2.1.  Bikeshedding
+
+   Couldn't help it.
+
+   *  Renamed Track Namespace to Broadcast
+
+   *  Renamed Object to Frame
+
+7.2.2.  Stream per Group
+
+   The MoQ WG couldn't agree on how to utilize QUIC streams, so the
+   compromise was to support multiple modes and let the application
+   choose.  This is a headache for too many reasons to list.
+   MoqTransfork only "supports" a stream per group.
+
+7.2.3.  Subscriber's Choice
+
+   MoqTransfork moves most decision making to the subscriber, so a
+   single publisher can support multiple diverse subscribers.  The
+   publisher provides a default value to resolve conflicts when
+   deduplicating.
+
+7.2.4.  Control Streams
+
+   Transactions like Announce and Subscribe use their own control
+   stream, inheriting the stream state machine for error handling.
+
+   This replaces excessive message types in MoqTransport: - Removed
+   ANNOUNCE_ERROR - Removed ANNOUNCE_DONE - Removed UNANNOUNCE - Removed
+   SUBSCRIBE_OK - Removed SUBSCRIBE_ERROR - Removed SUBSCRIBE_DONE -
+   Removed UNSUBSCRIBE
+
+7.2.5.  Unambiguous Delivery
+
+   With MoqTransfork, the subscriber knows if a group/frame will be
+   delivered or was dropped.
+
+   *  Group Sequences are sequential
+
+   *  All sequences within the SUBSCRIBE range are delivered or dropped.
+
+   *  GROUP_DROP when a group is dropped.
+
+7.2.6.  Fetch via Offset
+
+   A reconnecting subscriber can request the retransmission of a group/
+   stream at a given byte offset.  Resumption in MoqTransport is more
+   complicated and can only occur at object/group boundaries.
+
+7.2.7.  Track INFO
+
+   Added a mechanism to request information about the current track
+   state.
+
+   *  Added INFO_REQUEST and INFO
+
+   *  Replaced SUBSCRIBE_OK with INFO
+
+8.  Appendix: Media Use-Cases
 
    These are some recommended ways to use MoqTransfork for media
    delivery.
 
-6.1.  Video
+8.1.  Video
 
    Video encoding involves complex dependencies between frames/slices.
    The terminology in this section stems from H.264 but is applicable to
@@ -776,7 +804,7 @@ Table of Contents
 
    *  *B-Frame*: A frame that depends on previous or future frames.
 
-6.1.1.  Group of Pictures
+8.1.1.  Group of Pictures
 
    A simple application can ignore the complexity of P/B frames and
    focus on I-Frames.  This is the optimal approach for many encoding
@@ -812,7 +840,7 @@ Table of Contents
    truncates the Group and a subscriber can issue a FETCH if it wants to
    resume at a byte offset.
 
-6.1.2.  Layers
+8.1.2.  Layers
 
    An advanced application can subdivide a GoP into layers.
 
@@ -851,7 +879,7 @@ Table of Contents
    layers and how to synchronize them, for example based on the Group
    Sequence.
 
-6.1.3.  Non-Reference Frames
+8.1.3.  Non-Reference Frames
 
    While not explicitly stated, I believe the complexity in MoqTransport
    stems almost entirely from a single use-case: the ability to drop
@@ -878,24 +906,25 @@ Table of Contents
    to put them into a separate layer, such that the tail of the layer
    could be dropped.
 
-6.2.  Audio
+8.2.  Audio
 
    Unlike video, audio is simple and yet has perhaps more potential for
    optimization.
 
-6.2.1.  Frames
+8.2.1.  Frames
 
    Audio samples are very small and for the sake of compression, are
    grouped into a frame.  This depends on the codec and the sample rate
    but each frame is typically 10-50ms of audio.
 
-   Audio frames are independent and ordered, again making them a good
-   fit for QUIC streams.  Each audio frame can be transmitted as a GROUP
-   with a single FRAME.
+   Audio frames are independent, which means they map nicely to
+   MoqTransfork Groups.  Each audio frame should be transmitted as a
+   GROUP with a single FRAME.
 
-6.2.2.  Groups
+8.2.2.  Groups
 
-   It may also be desirable to group audio frames into larger units.
+   If latency is not a concern, audio groups can be combined to reduce
+   overhead at the cost of some head-of-line blocking.
 
    For example, if an application wants reliable playback and A/V
    synchronization, then audio and video could be aligned.  An
@@ -909,7 +938,7 @@ Table of Contents
    audio frames during congestion (tail drop only) but that's up to the
    application.
 
-6.2.3.  FEC
+8.2.3.  FEC
 
    Real-time audio applications often use Forward Error Correction (FEC)
    to conceal packet loss.  Audio frames are a good candidate for FEC
@@ -926,17 +955,18 @@ Table of Contents
    acknowledged within this time frame, potentially causing them to be
    lost.
 
-   The subscriber can choose if it wants to use datagrams or streams for
-   a subscription.  I recommend using streams if the RTT is smaller than
-   Group Expires, as it gives retransmissions a chance even when FEC is
-   used.
+   Normally, FEC is performed by transmitting individual packets once as
+   datagrams.  However, it's strictly better to use QUIC streams when
+   Group Expires is smaller than the RTT, and inconsequential when it's
+   not (~10 more bytes).  This enables retransmitting lost packets on
+   short hops and otherwise relying on FEC for long hops.
 
-6.3.  Metadata
+8.3.  Metadata
 
    There's a number of non-media use cases that can be served by
    MoqTransfork.
 
-6.3.1.  Catalog
+8.3.1.  Catalog
 
    Originally part of the transport itself, the catalog is a list of all
    tracks within a broadcast.  It's since been delegated to the
@@ -951,7 +981,7 @@ Table of Contents
    base is the first FRAME and all deltas are subsequent FRAMEs.  The
    producer can create a new GROUP to start over, repeating the process.
 
-6.3.2.  Timeline
+8.3.2.  Timeline
 
    Another track that is commonly pitched is a timeline track.  This
    records the presentation timestamp of each Group, giving a VOD viewer
@@ -962,7 +992,7 @@ Table of Contents
    applications while being concise enough for VOD.  Timed metadata
    would use a similar approach or perhaps leverage this track.
 
-6.3.3.  Interaction
+8.3.3.  Interaction
 
    Another common use-case is to transmit user interactions, such as
    controller inputs or chat messages.  It's up to the application to
@@ -986,7 +1016,7 @@ Table of Contents
    However, this only applies to the first hop and won't be applicable
    when relays are involved.
 
-6.4.  Latency
+8.4.  Latency
 
    One explicit goal of MoqTransfork is to support multiple latency
    targets.
@@ -1001,7 +1031,7 @@ Table of Contents
    The below examples assume one audio and one video track.  See the
    next section for more complicated broadcasts.
 
-6.4.1.  Real-Time
+8.4.1.  Real-Time
 
    Real-time latency is accomplished by prioritizing the most important
    media during congestion and skipping the rest.
@@ -1044,7 +1074,7 @@ Table of Contents
    are no longer the latest.  It's recommended to use the maximum jitter
    buffer size.
 
-6.4.2.  Unreliable Live
+8.4.2.  Unreliable Live
 
    Unreliable live is a term I made up.  Basically we want low latency,
    but we don't need it at all costs and we're willing to skip some
@@ -1068,7 +1098,7 @@ Table of Contents
    group_expires value can be increased during buffering by issuing a
    SUBSCRIBE_UPDATE.
 
-6.4.3.  Reliable Live
+8.4.3.  Reliable Live
 
    Reliable live is another term I made up.  This is when we have a live
    stream but primarily care about picture quality.  A good example is a
@@ -1084,7 +1114,7 @@ Table of Contents
    resets a group.  However, this can result in buffering during
    congestion and provides a similar user experience to HLS/DASH.
 
-6.4.4.  VOD / DVR
+8.4.4.  VOD / DVR
 
    Video on Demand (VOD) and Digital Video Recorder (DVR) both involve
    seeking backwards in a live stream.  MoqTransfork can serve this use-
@@ -1119,19 +1149,19 @@ Table of Contents
    SUBSCRIBE track=video priority=0 order=ASC start=123 end=134
    SUBSCRIBE track=video priority=1 order=DESC
 
-6.4.5.  Upstream
+8.4.5.  Upstream
 
    All of these separate viewers could be watching the same broadcast.
    How is a relay supposed to fetch the content from upstream?
 
-   MoqTransfork addresses this by providing a Default Track Priority and
-   Default Group Order in the INFO message.  This is the intended
+   MoqTransfork addresses this by providing the publisher's Track
+   Priority and Group Order in the INFO message.  This is the intended
    behavior for the first hop and dictates which viewers are preferred.
 
    For example, suppose the producer chooses:
 
-   INFO track=audio default_priority=0 default_order=DESC
-   INFO track=video default_priority=1 default_order=DESC
+   INFO track=audio priority=0 order=DESC
+   INFO track=video priority=1 order=DESC
 
    If Alice is watching a VOD and issues:
 
@@ -1147,18 +1177,18 @@ Table of Contents
    Bob's experience by following the producer's preference.  However any
    congestion on the last mile will always use the viewer's preference.
 
-   A relay should use the default priority/order only when there's a
+   A relay should use the publisher's priority/order only when there's a
    conflict.  If viewers have the same priority/order, then the relay
    should use the viewer's preference and it can always issue a
    SUBSCRIBE_UPDATE when this changes.
 
-6.5.  Broadcast
+8.5.  Broadcast
 
    A broadcast is a collection of tracks from a single producer.  This
    usually includes an audio track and/or a video track, but there are
    reasons to have more than that.
 
-6.5.1.  ABR
+8.5.1.  ABR
 
    Virtually all mass fanout use-cases rely on Adaptive Bitrate (ABR)
    streaming.  The idea is to encode the same content at multiple
@@ -1182,7 +1212,7 @@ Table of Contents
 
    The primary reason to use ABR is to adapt to changing network
    conditions.  The viewer learns about the estimated bandwidth via the
-   SESSION_INFO message, or by measuring network traffic and can then
+   SESSION_UPDATE message, or by measuring network traffic and can then
    choose the appropriate track based on bitrate.
 
    Transitioning between tracks can be done seamlessly by utilizing
@@ -1204,7 +1234,7 @@ Table of Contents
    switch at group 69 even if it's seconds in the future.  The same
    behavior can be used to switch down.
 
-6.5.2.  SVC
+8.5.2.  SVC
 
    We touched on SVC before, but it's worth mentioning as an alternative
    to ABR.  I want to see it used more often but I doubt it will be.
@@ -1220,14 +1250,14 @@ Table of Contents
    followed by the 1080p enhancement layer.  This is a more efficient
    use of bandwidth than ABR, but it requires more complex encoding.
 
-6.6.  Conferences
+8.6.  Conferences
 
    Some applications involve multiple producers, such as a conference
    calls or a live events.  Even though these are separate broadcasts
    from potentially separate origins, MoqTransfork can still serve them
    over the same session.
 
-6.6.1.  Discovery
+8.6.1.  Discovery
 
    The first step to joining a conference is to discover the available
    broadcasts.
@@ -1243,48 +1273,48 @@ Table of Contents
    to add a new FRAME +alice.  The same can be done to remove her when
    she leaves.
 
-6.6.2.  Participants
+8.6.2.  Participants
 
    Extending the idea that audio is more important than video, we can
    prioritize tracks regardless of the source.  This works because
    SUBSCRIBE priority is scoped to the session and not the broadcast.
 
-   SUBSCRIBE track=alice.audio priority=1
-   SUBSCRIBE track=frank.audio priority=1
-   SUBSCRIBE track=alice.video priority=3
-   SUBSCRIBE track=frank.video priority=3
+   SUBSCRIBE broadcast=alice track=audio priority=1
+   SUBSCRIBE broadcast=frank track=audio priority=1
+   SUBSCRIBE broadcast=alice track=video priority=3
+   SUBSCRIBE broadcast=frank track=video priority=3
 
    When Alice starts talking or is focused, we can actually issue a
    SUBSCRIBE_UPDATE to increase her priority:
 
-   SUBSCRIBE_UPDATE track=alice.audio priority=0
-   SUBSCRIBE_UPDATE track=alice.video priority=2
+   SUBSCRIBE_UPDATE broadcast=alice track=audio priority=0
+   SUBSCRIBE_UPDATE broadcast=frank track=video priority=2
 
    Note that audio is still more important than video, but Alice is now
    more important than Frank. (poor Frank)
 
    This concept can further be extended to work with SVC or ABR:
 
-   SUBSCRIBE track=alice.360p priority=1
-   SUBSCRIBE track=frank.360p priority=2
-   SUBSCRIBE track=alice.720p priority=3
-   SUBSCRIBE track=frank.720p priority=4
+   SUBSCRIBE broadcast=alice track=360p priority=1
+   SUBSCRIBE broadcast=frank track=360p priority=2
+   SUBSCRIBE broadcast=alice track=720p priority=3
+   SUBSCRIBE broadcast=frank track=720p priority=4
 
-7.  Security Considerations
+9.  Security Considerations
 
    TODO Security
 
-8.  IANA Considerations
+10.  IANA Considerations
 
    This document has no IANA actions.
 
-9.  Normative References
+11.  Normative References
 
    [moqt]     Curley, L., Pugin, K., Nandakumar, S., Vasiliev, V., and
               I. Swett, "Media over QUIC Transport", Work in Progress,
-              Internet-Draft, draft-ietf-moq-transport-03, 4 March 2024,
+              Internet-Draft, draft-ietf-moq-transport-05, 8 July 2024,
               <https://datatracker.ietf.org/doc/html/draft-ietf-moq-
-              transport-03>.
+              transport-05>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
