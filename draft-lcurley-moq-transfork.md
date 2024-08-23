@@ -47,7 +47,7 @@ I fully support the goals of the working group and the IETF process.
 There are practical and conceptual flaws with MoqTransport that should be addressed.
 However, it's been difficult to design an experimental protocol via committee.
 Despite years of arguments in person and on GitHub, we've yet to align on the most critical property of the transport... how to utilize QUIC.
-The result is an unwieldy "compromise", consisting of multiple incompatible modes that are difficult to support or explain. 
+The result is an unwieldy "compromise", consisting of multiple incompatible modes that are difficult to support or explain.
 
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
@@ -117,13 +117,9 @@ This section outlines the flow of messages within a MoqTransfork session.
 See the section for Messages section for the specific encoding.
 
 ## Connection
-MoqTransfork runs on top of either WebTransport or QUIC directly.
-
-WebTransport is a layer on top of QUIC and HTTP/3 required for web support.
+MoqTransfork runs on top of WebTransport.
+WebTransport is a layer on top of QUIC and HTTP/3, required for web support.
 The API is nearly identical to QUIC, however notably lacks stream IDs and has fewer available error codes.
-
-QUIC may be used directly with the ALPN `moqf-00`, which will be updated any time there is a breaking change to version negotiation.
-The QUIC client SHOULD include a PATH and ORIGIN parameter in the SESSION_CLIENT message to emulate a WebTransport client.
 
 ## Termination
 QUIC streams can be closed or reset with an error code, while bidirectional streams have an independent send and receive direction.
@@ -156,7 +152,7 @@ The first byte of each stream indicates the Stream Type.
 Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
 
 |------|-----------|------------|
-| Byte | Type      | Role       |
+| ID   | Type      | Role       |
 |-----:|:----------|------------|
 | 0x0  | Session   | Client     |
 |------|-----------|------------|
@@ -250,8 +246,8 @@ A future version of this draft may utilize reliable reset instead.
 # Encoding
 This section covers the encoding of each message.
 
-Note that none of these message have a type identifier.
-The message is determined by the stream type and the current state.
+Note that these message do not contain a type identifier.
+The message type is determined by the stream type and the current state.
 
 ## SESSION_CLIENT
 The client advertises supported versions and any extensions.
@@ -503,20 +499,20 @@ SESSION_CLIENT and SESSION_SERVER have a flexible encoding to facilitate extensi
 This draft registers some extensions and reserves any IDs smaller than 64 for future drafts.
 Other documents MAY introduce additional extensions.
 
-|------|--------|
-| ID   | Extension  |
-|-----:|:-------|
-| 0x0  | Role  |
-|------|--------|
+|------|-----------|
+| ID   | Extension |
+|-----:|:----------|
+| 0x0  | Role      |
+|------|-----------|
 
 ## Role
 The Role Extension indicates the desired role for the endpoint.
 This is useful for indicating intent, such as a client indicating that it will not publish any tracks.
 
-The Role payload is a single varint indicating the functionality of the sender: 
+The Role payload is a single varint indicating the functionality of the sender:
 
 |-------|------------|
-| Value | Role       |
+| ID    | Role       |
 |------:|:-----------|
 | 0x0   | Publisher  |
 |-------|------------|
@@ -538,10 +534,13 @@ An endpoint MAY close the session with a RequiredExtension error (TODO) if the e
 Notable changes between versions of this draft.
 
 ## moq-transfork-01
+Changes based on implementation experience.
+
+- Removed datagram support
+- Removed native QUIC support.
 - Moved Expires from GROUP to SUBSCRIBE
 - Added FETCH_UPDATE
 - Added ROLE=Any
-- Removed datagram support 
 
 ## moq-transfork-00
 Based on moq-transport-03
