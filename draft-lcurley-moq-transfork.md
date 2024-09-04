@@ -24,10 +24,9 @@ informative:
 
 --- abstract
 
-MoqTransfork is a live pub/sub transport utilizing QUIC.
-The protocol is designed to serve an unbounded number of viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
-MoqTransfork itself is media agnostic, containing only the necessary metadata to relay live tracks optimally during congestion.
-The specific media encoding (ex. container+codec) is delegated to a higher layer and the broadcaster/viewer endpoints.
+MoqTransfork is designed to serve a broadcast to an unbounded number of viewers with different latency/quality targets: the entire spectrum between real-time and VOD.
+The protocol is a thin pub/sub layer on top of QUIC/WebTransport containing only the necessary metadata to relay live tracks optimally during congestion.
+MoqTransfork is media agnostic and intended for any live content, potentially end-to-end encrypted, that follows a similar pattern to video encoding.
 
 --- middle
 
@@ -44,15 +43,15 @@ I absolutely believe in the motivation and potential of Media over QUIC.
 The layering is phenomenal and addresses many of the problems with current live media protocols.
 I fully support the goals of the working group and the IETF process.
 
-There are practical and conceptual flaws with MoqTransport that should be addressed.
-However, it's been difficult to design an experimental protocol via committee.
-Despite years of arguments in person and on GitHub, we've yet to align on the most critical property of the transport... how to utilize QUIC.
-The result is an unwieldy "compromise", consisting of multiple incompatible modes that are difficult to support or explain.
+But there are practical and conceptual flaws with MoqTransport that should be addressed.
+It's been difficult to design an experimental protocol via committee.
+Despite years of arguments in person and on GitHub, we've yet to align on even the most critical property of the transport... how to utilize QUIC.
+The result is an inevitable and unwieldy "compromise", consisting of multiple incompatible modes that are difficult to support or explain.
 
 In our RUSH to standardize a protocol, the QUICR solutions have led to WARP in ideals.
 
-This fork is meant to be a constructive alternative vision.
-This is my attempt to lead by example, demonstrating how to support real media use-cases while simplifying the protocol.
+This fork is meant to be a constructive, alternative vision.
+I would like to lead by example, demonstrating that you can support real media use-cases while simplifying the protocol.
 The working group will keep making progress and hopefully many of these ideas will be incorporated.
 
 The appendix contains a list of high level differences between MoqTransport and MoqTransfork.
@@ -64,53 +63,82 @@ The MoqTransfork session is used to publish and/or subscribe to "tracks" within 
 To facilitate joining in the middle of a live track, they are subdivided into independent "groups" and further into "frames".
 
 The application determines how to split data into broadcasts/tracks/groups/frames.
-MoqTransfork is instead responsible for the networking and deduplication utilizing rules encoded in headers.
+MoqTransfork is only responsible for the networking and fanout by utilizing rules encoded in headers.
 This provides robust and generic one-to-many transmission, even for latency sensitive applications.
 
 The MoqTransfork object model consists of:
 
+- **Session**: An established connection between a client and server used to transmit any number of broadcasts.
 - **Broadcast**: A collection of Tracks from a single producer.
-- **Track**: A series of Groups within a Broadcast.
-- **Group**: A series of Frames within a Track, served in order.
+- **Track**: A series of Groups within a Broadcast, each of which is independent.
+- **Group**: A series of Frames within a Track, served in order within a Group.
 - **Frame**: A sized payload of bytes within a Group.
+
+## Session 
+A Session consists of a connection between a QUIC client and server.
+
+The session is established after a separate QUIC, WebTransport, and MoqTransfork handshake that involve exchanging version and extension information.
+MoqTransfork optionally includes a ROLE extension, signalling if the endpoint supports only supports publishing or subscribing.
+
+Sessions can be chained together via relays.
+A broadcaster could establish a session with an CDN ingest edge while the viewers establish separate sessions to CDN distribution edges.
+A MoqTransfork session is hop-by-hop, but the application should be designed end-to-end.
 
 ## Broadcast
 A Broadcast is a collection of tracks from a single producer, identified by a unique name within the session.
+A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.
 
-Each subscription is scoped to a single Track within Broadcast.
 The application determines if tracks within a broadcast are correlated.
-For example, a "video" track and "audio" track may use synchronized timestamps.
+For example, a "video" track and "audio" track could use synchronized timestamps.
+This relies on the fact that a broadcast is created by a single publisher, as there is no clock synchronization built into MoqTransfork.
 
 A publisher can advertise available broadcasts via an ANNOUNCE message.
+This allows a subscriber to dynamically discover available broadcasts.
 Alternatively, the application can discover broadcasts via an out-of-band mechanism.
 
 ## Track
 A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
 
-Each subscription is scoped to a single Track and starts/ends at a Group boundary.
-A subscriber chooses the priority of each subscription, dictating which Track arrives first during congestion.
+Each subscription is scoped to a single Track.
+A subscription will always start at a Group boundary, either the latest group or a specified Group sequence.
+A subscriber chooses the ordering and priority of each subscription, hinting to the publisher which Track should arrive first during congestion.
+This is critical for a decent user experience during network degradation and the core reason why QUIC can offer real-time latency.
 
 There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
-This is often done with a "catalog" that lists all available tracks and their properties.
+This is often done with a named "catalog" track that lists all available tracks and their properties.
+An application may choose to use static and/or dynamic track names.
+
 
 ## Group
 A Group is an ordered stream of Frames within a Track.
 
-A Group may be served via a QUIC stream or datagram, chosen by the subscriber.
-If the Group is dropped for any reason, a subscriber may FETCH it again starting at a given byte offset.
+A group is served by a dedicated QUIC stream which may be closed on completion, reset by the publisher, or cancelled by the subscriber.
+An active subscription involves delivering multiple potential concurrent groups.
+The Frames within a Group will arrive reliably and in order thanks to the QUIC stream.
+However, Groups within a Track can arrive in any order or not at all, and which the application should be prepared to handle. 
+
+A subscriber may FETCH a specific group starting at a given byte offset.
+This is similar to a HTTP request and may be used to recover from partial failures among other things.
 
 ## Frame
 A Frame is a payload of bytes within a Group.
 
-A frame is used to represent a single moment in time.
-It consists of a payload with a size prefix so all data must be buffered upfront.
+A frame is used to represent a chunk of data with a known size.
+A frame should represent a single moment in time and avoid any buffering that would increase latency.
+
 
 ## Congestion
 A media protocol can only be considered "live" if it can handle degraded network congestion.
 MoqTransfork handles this by prioritizing the most important media while the remainder is starved.
 
 The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
-Any data that is excessively starved may be dropped rather than block the live stream.
+This is done via the Track Priority and the Group Order.
+Any data that is excessively starved may be dropped (by either endpoint) rather than block the live stream.
+
+A publisher that serves multiple sessions, commonly a relay, should prioritize on a per-session basis.
+Viewer A may want real-time latency with a preference for audio, while Viewer may want reliable playback while audio is muted.
+A relay MAY forward subscriber preferences upstream, but when there is a conflict (like the above example), the publisher's preference should be used as a tiebreaker.
+
 
 # Workflow
 This section outlines the flow of messages within a MoqTransfork session.
