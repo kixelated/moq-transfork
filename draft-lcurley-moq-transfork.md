@@ -152,21 +152,15 @@ The API is nearly identical to QUIC, however notably lacks stream IDs and has fe
 ## Termination
 QUIC streams can be closed or reset with an error code, while bidirectional streams have an independent send and receive direction.
 Rather than deal with half-open states, MoqTransfork combines both sides.
-If an endpoint closes the send direction of a stream, it also closes the recv direction.
+If an endpoint closes the send direction of a stream, the peer MUST also close the send direction.
 
 To terminate a stream, an endpoint closes (STREAM_FIN) or resets (RESET_STREAM) the send direction.
 Any messages/data on a closed stream will still be delivered, while a reset results in immediate termination.
-An endpoint MAY close the recv direction with the same error code.
-
-An endpoint MUST monitor the recv direction for errors.
-When the recv direction is closed/reset, the endpoint MUST close/reset the send direction.
-
-An endpoint MAY close the session by closing/resetting the Session Stream.
-An endpoint MUST close the connection (via CONNECTION_CLOSE) on a fatal encoding error or protocol violation.
+An endpoint SHOULD close the recv direction (STOP_SENDING) with the same error code.
 
 
 ## Handshake
-After a connection is established, the client opens the Session Stream and sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+After a connection is established, the client opens a Session Stream and sends a SESSION_CLIENT message, to which the server replies with a SESSION_SERVER message.
 The session is active until either endpoint closes or resets the Session Stream.
 
 This session handshake is used to negotiate the MoqTransfork version and any extensions.
@@ -177,7 +171,7 @@ See the Extension section for more information.
 Bidirectional streams are primarily used for control streams.
 
 The first byte of each stream indicates the Stream Type.
-Streams may only be created by the indicated role, otherwise the session MUST be closed with a ROLE_VIOLATION.
+A Stream Type is created by an endpoint with the associated Role and MUST be enforced when the ROLE extension is negotiated.
 
 |------|-----------|------------|
 | ID   | Type      | Role       |
@@ -199,6 +193,7 @@ The Session stream contains all messages that are session level.
 
 The client MUST open a single Session Stream immediately after establishing the QUIC/WebTransport session.
 The client sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+
 Afterwards, both endpoints SHOULD send SESSION_UPDATE messages, such as after a significant change in the session bitrate.
 
 The session remains active until the Session Stream is closed or reset by either endpoint.
@@ -206,7 +201,7 @@ The session remains active until the Session Stream is closed or reset by either
 
 ### Announce
 A publisher can open an Announce Stream to advertise a broadcast.
-This is optional, as the application determine the broadcast name out-of-band.
+This is optional, as the application MAY determine the broadcast name out-of-band.
 
 The publisher MUST start the stream with an ANNOUNCE message.
 The subscriber MUST reply with an ANNOUNCE_OK message or reset the stream.
@@ -264,7 +259,7 @@ Unidirectional streams are used for subscription data.
 A publisher creates Group Streams in response to a Subscribe Stream.
 
 A Group Stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
-An application MAY use zero length Group or Frames to signal gaps.
+An application MAY use an empty GROUP and/or FRAME to signal gaps.
 
 Both the publisher and subscriber MAY reset the stream at any time.
 When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
@@ -336,6 +331,8 @@ ANNOUNCE_OK Message {
   Cool = 0x1
 }
 ~~~
+
+This message is a single (😎) byte long.
 
 ## SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -562,20 +559,19 @@ An endpoint MAY close the session with a RequiredExtension error (TODO) if the e
 Notable changes between versions of this draft.
 
 ## moq-transfork-01
-Changes based on implementation experience.
-
 - Removed datagram support
-- Removed native QUIC support.
+- Removed native QUIC support
 - Moved Expires from GROUP to SUBSCRIBE
 - Added FETCH_UPDATE
 - Added ROLE=Any
 
+Datagram and native QUIC support may be re-added in a future draft.
+
 ## moq-transfork-00
-Based on moq-transport-03
+Based on moq-transport-03.
+The significant changes have been broken into sections.
 
 ### Bikeshedding
-Couldn't help it.
-
 - Renamed Track Namespace to Broadcast
 - Renamed Object to Frame
 
@@ -643,9 +639,7 @@ Each frame has a decode order (DTS) and a frame MUST NOT depend on frames with a
 This perfectly maps to a QUIC stream, as they too are independent and ordered.
 The easiest way to use MoqTransfork is to send each GoP as a GROUP with each frame as a FRAME, hence the names.
 
-Given the nature of QUIC streams and GoPs, all actions are done at Group boundaries.
 Each SUBSCRIBE starts at a Group to ensure that it starts with an I-Frame.
-A FETCH can be used to start at a byte offset instead, assuming some of the Group has already been received.
 Each Group is delivered in decode order ensuring that all frames are decodable (no artifacts).
 
 A subscriber can choose the Group Order based on the desired user experience:
@@ -654,7 +648,7 @@ A subscriber can choose the Group Order based on the desired user experience:
 - `SUBSCRIBE order=ASC`: Transmits old Groups first to avoid skipping, intended for VOD and reliable live streams.
 
 A publisher or subscriber can skip the remainder of a Group by resetting a Group Stream or by issuing a SUBSCRIBE_UPDATE.
-This truncates the Group and a subscriber can issue a FETCH if it wants to resume at a byte offset.
+A FETCH can be used to recover any partial groups.
 
 ### Layers
 An advanced application can subdivide a GoP into layers.
@@ -667,7 +661,7 @@ However, SVC has limited support and is complex to encode.
 Another approach is to use temporal scalability via something like B-pyramids.
 The frames within a GoP are sub-divided based on their dependencies, intentionally creating a hierarchy.
 For example, even frames could be prevented from referencing odd frames, creating a base 30fps layer and an enhancement 60fps layer.
-This is effectively a custom SVC scheme, however it's limited to time (can't change resolution) and the enhancement layer will be significantly smaller than the base layer.
+This is effectively a custom SVC scheme however it's limited to time and doesn't require special decoder support.
 
 The purpose of these layers is to support degrading the quality of the broadcast.
 A subscriber could limit bandwidth usage by choose to only receive the base layer or a subset of the enhancements layers.
@@ -684,16 +678,11 @@ The application could use a catalog to advertise the layers and how to synchroni
 ### Non-Reference Frames
 While not explicitly stated, I believe the complexity in MoqTransport stems almost entirely from a single use-case: the ability to drop individual non-reference frames in the middle of a group.
 
-A non-reference frame cannot be referenced by other frames and is effectively a leaf node in the dependency graph.
-In theory, non-reference frames can be dropped during congestion without affecting the decodability of other frames.
-This idea sounds good on paper but it's a trap.
-
-Good encoders try to avoid non-reference frames because they fundamentally reduce the compression ratio; they are dead-end bits that can't be used for prediction.
-You can configure the encoder to produce non-reference frames but the result is a higher bitrate for the ability to drop a small amount during congestion.
-But the main problem is the complexity introduced into the transport, as each frame must be transmitted as an individual QUIC stream based on a dependency graph that is not available to relays, and difficult for both broadcasters and viewers to parse.
+In theory, transmitting enhancement layers as tracls like mentioned above could introduce head-of-line blocking depending on the encoding.
+This would occur when enhancement layers are not self-referencial, a rare configuration which alsohurts the compression ratio.
+And in practice, there's no discernable user impact given the disproportionate size difference between base and enhancement layers.
 
 The ability to drop individual non-reference frames in the middle of a group is an explicit non-goal for MoqTransfork.
-An alternative is to put them into a separate layer, such that the tail of the layer could be dropped.
 
 
 ## Audio
@@ -704,17 +693,14 @@ Audio samples are very small and for the sake of compression, are grouped into a
 This depends on the codec and the sample rate but each frame is typically 10-50ms of audio.
 
 Audio frames are independent, which means they map nicely to MoqTransfork Groups.
-Each audio frame should be transmitted as a GROUP with a single FRAME.
+Each audio frame can be transmitted as a GROUP with a single FRAME.
 
 ### Groups
-If latency is not a concern, audio groups can be combined to reduce overhead at the cost of some head-of-line blocking.
+Audio FRAMEs can also be combined into periodic GROUPs to reduce overhead at the cost of some introducing head-of-line blocking.
+This won't increase latency except under significant congestion as each FRAME is still streamed. 
 
-For example, if an application wants reliable playback and A/V synchronization, then audio and video could be aligned.
-An application could then subscribe to video and audio starting at group X for both tracks, instead of trying to maintain a mapping between the two based on timestamp.
+For example, an application could then subscribe to video and audio starting at group X for both tracks, instead of trying to maintain a mapping between the two based on timestamp.
 This is quite common in HLS/DASH as there's no reason to subdivide audio segments at frame boundaries.
-
-This can be accomplished with MoqTransfork by using multiple audio FRAMEs within a GROUP.
-This limits the ability to drop individual audio frames during congestion (tail drop only) but that's up to the application.
 
 ### FEC
 Real-time audio applications often use Forward Error Correction (FEC) to conceal packet loss.
@@ -728,7 +714,8 @@ A real-time subscriber issues a `SUBSCRIBE` with an aggressive `Group Expires` v
 The publisher will drop any Groups that have not been transmitted or acknowledged within this time frame, potentially causing them to be lost.
 
 Normally, FEC is performed by transmitting individual packets once as datagrams.
-However, it's strictly better to use QUIC streams when `Group Expires` is smaller than the RTT, and inconsequential when it's not (~10 more bytes).
+However, QUIC streams are useful as they allow retransmissions when `Group Expires` is smaller than the RTT.
+If the RTT is too high, then the RESET_STREAM frame adds some overhead but it's inconsequential (~10 more bytes).
 This enables retransmitting lost packets on short hops and otherwise relying on FEC for long hops.
 
 
