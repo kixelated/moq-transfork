@@ -74,15 +74,19 @@ This provides robust and generic one-to-many transmission, even for latency sens
 A Session consists of a connection between a QUIC client and server.
 
 A session is established after the necessary QUIC, WebTransport, and MoqTransfork handshakes.
-The MoqTransfork handshake consists of version information and an optional ROLE extension, signaling if the endpoint supports only supports publishing or subscribing.
+The MoqTransfork handshake consists of version and extension negotiation.
 
 The intent is that sessions are chained together via relays.
 A broadcaster could establish a session with an CDN ingest edge while the viewers establish separate sessions to CDN distribution edges.
 A MoqTransfork session is hop-by-hop, but the application should be designed end-to-end.
 
 ## Broadcast
-A Broadcast is a collection of tracks from a single producer, identified by a unique name within the session.
+A Broadcast is a collection of tracks from a single producer identified by a unique path within the session.
 A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.
+
+A broadcast path is an a UTF-8 string which may be discovered using a prefix.
+Correlated broadcasts should utilize this and share a path, for example: `meeting.1234.alice` and `meeting.1234.bob`
+A subscriber could then discover all broadcasts starting with `meeting.1234.`
 
 The application determines if tracks within a broadcast are correlated.
 For example, a "video" track and "audio" track could share timestamp domains.
@@ -174,24 +178,23 @@ See the Extension section for more information.
 
 ## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
-
 The first byte of each stream indicates the Stream Type.
-A Stream Type is created by an endpoint with the associated Role and MUST be enforced when the ROLE extension is negotiated.
 
-|------|-----------|------------|
-| ID   | Type      | Role       |
-|-----:|:----------|------------|
-| 0x0  | Session   | Client     |
-|------|-----------|------------|
-| 0x1  | Announce  | Publisher  |
-|------|-----------|------------|
-| 0x2  | Subscribe | Subscriber |
-|------|-----------|------------|
-| 0x3  | Fetch     | Subscriber |
-|------|-----------|------------|
-| 0x4  | Info      | Subscriber |
-|------|-----------|------------|
+The second column in this table indicates which endpoint or role will create a stream.
 
+|------|------------|------------|
+| ID   | Type       | Role       |
+|-----:|:-----------|------------|
+| 0x0  | Session    | Client     |
+|------|------------|------------|
+| 0x1  | Announced  | Subscriber |
+|------|------------|------------|
+| 0x2  | Subscribe  | Subscriber |
+|------|------------|------------|
+| 0x3  | Fetch      | Subscriber |
+|------|------------|------------|
+| 0x4  | Info       | Subscriber |
+|------|------------|------------|
 
 ### Session
 The Session stream contains all messages that are session level.
@@ -203,17 +206,30 @@ Afterwards, both endpoints SHOULD send SESSION_UPDATE messages, such as after a 
 
 The session remains active until the Session Stream is closed or reset by either endpoint.
 
+#### Versions
+The SESSION_CLIENT and SESSION_SERVER messages are used to negotiate versions.
+This draft's version is combined with the constant `0xff0bad00`.
+
+For example, moq-transfork-draft-03 is identified as `0xff0bad03`.
+
+A client may advertise support for multiple versions.
+The server chooses one of the supported versions, or errors if none of the listing versions are supported.
 
 ### Announce
-A publisher can open an Announce Stream to advertise a broadcast.
-This is OPTIONAL and the application can determine the broadcast name out-of-band.
+A subscriber can open a Announce Stream to discover broadcasts matching a prefix.
+This is OPTIONAL and the application can determine broadcast paths out-of-band.
 
-The publisher MUST start the stream with an ANNOUNCE message.
-The subscriber MUST reply with an ANNOUNCE_OK message or reset the stream.
-The announcement is active until the stream is closed or reset by either endpoint.
+The subscriber MUST start the stream with a ANNOUNCE_INTEREST message.
+The publisher MAY reply with any number of ANNOUNCE message to indicate when a broadcast has started or stopped.
+Both sides may close/reset the stream at any point.
 
-There is currently no expectation that a relay will forward an ANNOUNCE message downstream.
-A future draft may introduce a mechanism to discover broadcasts matching a prefix.
+The publisher SHOULD send an ANNOUNCE message for each broadcast path that matches the prefix.
+There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
+The publisher MAY choose to not ANNOUNCE matching streams, such as when they are private or the prefix is too expansive.
+The publisher SHOULD close the stream with an error code when this happens.
+
+When a broadcast has ended, the publisher sends an ANNOUNCE message with an identical name.
+This will toggle the availability of the broadcast and avoids the need for a dedicated UNANNOUNCE message.
 
 ### Subscribe
 A subscriber can open a Subscribe Stream to request a named track within a broadcast.
@@ -270,8 +286,24 @@ A future version of this draft may utilize reliable reset instead.
 # Encoding
 This section covers the encoding of each message.
 
-Note that these message do not contain a type identifier.
+Note that these message do not currently contain a type identifier.
 The message type is determined by the stream type and the current state.
+
+## Types
+Unless otherwise indicated, all types are big-endian (network order).
+
+`(i)`:
+A QUIC VarInt with a maximum size of 62-bits.
+The highest two bits in the first byte indicate the total size; 1 bytes, 2 bytes, 4 bytes or 8 bytes.
+This value is unsigned unless otherwise indicated.
+
+`(b)`:
+VarInt size followed by that many indicated bytes.
+
+`(s)`:
+A VarInt size followed by that many indicated bytes.
+The bytes MUST be a valid UTF-8 string.
+
 
 ## SESSION_CLIENT
 The client advertises supported versions and any extensions.
@@ -316,30 +348,33 @@ This SHOULD be sourced directly from the QUIC congestion controller.
 A value of 0 indicates that this information is not available.
 
 
+## ANNOUNCE_INTEREST
+A subscriber sends an ANNOUNCE_INTEREST message to indicate it wants any cooresponding ANNOUNCE messages.
+
+~~~
+ANNOUNCE_INTEREST Message {
+  Broadcast Prefix (s),
+}
+~~~
+
+**Broadcast Prefix**:
+Indicate interest for any broadcasts that start with this prefix.
+The publisher SHOULD reply with an ANNOUNCE message for any matching broadcasts.
+
+
 ## ANNOUNCE
 A publisher sends an ANNOUNCE message to advertise a broadcast.
 
 ~~~
 ANNOUNCE Message {
-  Broadcast Name (b),
+  Broadcast Path (s),
 }
 ~~~
 
-**Broadcast Name**:
-The name of the broadcast.
-A zero-sized name is valid but not recommended.
+**Broadcast Path**
+The broadcast path.
+This MUST start with the requested prefix.
 
-
-## ANNOUNCE_OK
-A subscriber replies to an ANNOUNCE with an ANNOUNCE_OK message.
-
-~~~
-ANNOUNCE_OK Message {
-  Cool = 0x1
-}
-~~~
-
-This message is a single byte long (😎).
 
 ## SUBSCRIBE
 SUBSCRIBE is sent by a subscriber to start a subscription.
@@ -542,7 +577,8 @@ An error code indicated by the application.
 
 
 ## FRAME
-The FRAME message consists of a length followed by that many bytes.
+The FRAME message is a payload at a specific point of time.
+
 
 ~~~
 FRAME Message {
@@ -555,45 +591,14 @@ An application specific payload.
 A generic library or relay MUST NOT inspect or modify the contents unless otherwise negotiated.
 
 
-# Extensions
-SESSION_CLIENT and SESSION_SERVER have a flexible encoding to facilitate extension negotiation without causing breaking changes.
-
-This draft registers some extensions and reserves any IDs smaller than 64 for future drafts.
-Other documents MAY introduce additional extensions.
-
-|------|-----------|
-| ID   | Extension |
-|-----:|:----------|
-| 0x0  | Role      |
-|------|-----------|
-
-## Role
-The Role Extension indicates the desired role for the endpoint.
-This is useful for indicating intent, such as a client indicating that it will not publish any tracks.
-
-The Role payload is a single varint indicating the functionality of the sender:
-
-|-------|------------|
-| ID    | Role       |
-|------:|:-----------|
-| 0x0   | Publisher  |
-|-------|------------|
-| 0x1   | Subscriber |
-|-------|------------|
-| 0x2   | Both       |
-|-------|------------|
-| 0x3   | Any        |
-|-------|------------|
-
-
-
-If the extension is not present, the default value is Both.
-An endpoint MAY close the session with a RequiredExtension error (TODO) if the extension is missing and this default role is incompatible.
-
-
 
 # Appendix: Changelog
 Notable changes between versions of this draft.
+
+## moq-transfork-02
+- Document version numbers.
+- Added ANNOUNCE_INTEREST to opt-into ANNOUNCE messages.
+- Remove ROLE extension.
 
 ## moq-transfork-01
 - Removed datagram support
