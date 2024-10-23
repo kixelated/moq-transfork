@@ -84,7 +84,7 @@ A MoqTransfork session is hop-by-hop, but the application should be designed end
 A Broadcast is a collection of tracks from a single producer identified by a unique path within the session.
 A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.
 
-A broadcast path consists of byte slices used to route subscriptions to the correct publisher.
+A broadcast path consists of string parts used to route subscriptions to the correct publisher.
 The application determines the structure and encoding of the path.
 A broadcast path MUST be unique within a session and SHOULD contain entropy to avoid collisions with other sessions, for example timestamps or random values.
 
@@ -225,8 +225,8 @@ The publisher MAY reply with an error code if the prefix is too expansive.
 Otherwise, the publisher SHOULD reply with an ANNOUNCE message to indicate when a broadcast has started or stopped.
 Both sides may close/reset the stream at any point.
 
-Prefix matching is done byte-for-byte on the full broadcast path.
-For example, a prefix of `["meeting"]` would match `["meeting", 1234]` but not `["meeting-456"]`.
+Prefix matching is done on a part-by-part basis.
+For example, a prefix of `["meeting"]` would match `["meeting", "1234"]` but not `["meeting-1234"]`.
 The application is responsible for the encoding of the prefix, taking case to avoid any ambiguity such as multiple ways to encode the same value.
 
 There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
