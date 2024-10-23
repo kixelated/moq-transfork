@@ -84,17 +84,18 @@ A MoqTransfork session is hop-by-hop, but the application should be designed end
 A Broadcast is a collection of tracks from a single producer identified by a unique path within the session.
 A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.
 
-A broadcast path is an a UTF-8 string which may be discovered using a prefix.
-Correlated broadcasts should utilize this and share a path, for example: `meeting.1234.alice` and `meeting.1234.bob`
-A subscriber could then discover all broadcasts starting with `meeting.1234.`
-
-The application determines if tracks within a broadcast are correlated.
-For example, a "video" track and "audio" track could share timestamp domains.
-This is possible as a broadcast is created by a single publisher, avoiding the need for clock synchronization.
+A broadcast path consists of string parts used to route subscriptions to the correct publisher.
+The application determines the structure and encoding of the path.
+A broadcast path MUST be unique within a session and SHOULD contain entropy to avoid collisions with other sessions, for example timestamps or random values.
 
 A publisher can advertise available broadcasts via an ANNOUNCE message.
-This allows a subscriber to dynamically discover available broadcasts.
+This allows a subscriber to dynamically discover available broadcasts based on a shared prefix.
+For example: `["meeting", 1234, "alice"]` and `["meeting", 1234, "bob"]`
 Alternatively, the application can discover broadcasts via an out-of-band mechanism.
+
+The application determines if tracks within a broadcast are correlated, perhaps utilizing a shared clock or sequence number.
+This can avoid the need for clock synchronization as a broadcast can only have one publisher.
+
 
 ## Track
 A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
@@ -220,16 +221,15 @@ A subscriber can open a Announce Stream to discover broadcasts matching a prefix
 This is OPTIONAL and the application can determine broadcast paths out-of-band.
 
 The subscriber MUST start the stream with a ANNOUNCE_INTEREST message.
-The publisher MAY reply with any number of ANNOUNCE message to indicate when a broadcast has started or stopped.
+The publisher MAY reply with an error code if the prefix is too expansive.
+Otherwise, the publisher SHOULD reply with an ANNOUNCE message to indicate when a broadcast has started or stopped.
 Both sides may close/reset the stream at any point.
 
-The publisher SHOULD send an ANNOUNCE message for each broadcast path that matches the prefix.
-There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
-The publisher MAY choose to not ANNOUNCE matching streams, such as when they are private or the prefix is too expansive.
-The publisher SHOULD close the stream with an error code when this happens.
+Prefix matching is done on a part-by-part basis.
+For example, a prefix of `["meeting"]` would match `["meeting", "1234"]` but not `["meeting-1234"]`.
+The application is responsible for the encoding of the prefix, taking case to avoid any ambiguity such as multiple ways to encode the same value.
 
-When a broadcast has ended, the publisher sends an ANNOUNCE message with an identical name.
-This will toggle the availability of the broadcast and avoids the need for a dedicated UNANNOUNCE message.
+There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
 
 ### Subscribe
 A subscriber can open a Subscribe Stream to request a named track within a broadcast.
@@ -300,10 +300,6 @@ This value is unsigned unless otherwise indicated.
 `(b)`:
 VarInt size followed by that many indicated bytes.
 
-`(s)`:
-A VarInt size followed by that many indicated bytes.
-The bytes MUST be a valid UTF-8 string.
-
 
 ## SESSION_CLIENT
 The client advertises supported versions and any extensions.
@@ -353,27 +349,38 @@ A subscriber sends an ANNOUNCE_INTEREST message to indicate it wants any cooresp
 
 ~~~
 ANNOUNCE_INTEREST Message {
-  Broadcast Prefix (s),
+  Broadcast Prefix Parts (i),
+  [ Broadcast Prefix Part (b) ]
 }
 ~~~
 
 **Broadcast Prefix**:
-Indicate interest for any broadcasts that start with this prefix.
-The publisher SHOULD reply with an ANNOUNCE message for any matching broadcasts.
+Indicate interest for any broadcast paths that start with this prefix.
+This uses byte-for-byte matching on each prefix part.
+
+The publisher MAY close the stream with an error code if the prefix is too expansive.
+Otherwise, the publisher SHOULD respond with an ANNOUNCE message for any matching broadcasts.
+
 
 
 ## ANNOUNCE
 A publisher sends an ANNOUNCE message to advertise a broadcast.
+Only the suffix is encoded on the wire, the full path is constructed by prepending the prefix from the cooresponding ANNOUNCE_INTEREST.
 
 ~~~
 ANNOUNCE Message {
-  Broadcast Path (s),
+  Status (i),
+  Broadcast Suffix Parts (i),
+  [ Broadcast Suffix Part (b) ]
 }
 ~~~
 
-**Broadcast Path**
-The broadcast path.
-This MUST start with the requested prefix.
+**Status**:
+A flag indicating if the broadcast is active (1) or ended (0).
+Other values are reserved for future use.
+
+**Broadcast Suffix**:
+The broadcast path suffix.
 
 
 ## SUBSCRIBE
@@ -382,7 +389,8 @@ SUBSCRIBE is sent by a subscriber to start a subscription.
 ~~~
 SUBSCRIBE Message {
   Subscribe ID (i)
-  Broadcast Name (b)
+  Broadcast Path Parts (i)
+  [ Broadcast Path Part (b) ]
   Track Name (b)
   Track Priority (i)
   Group Order (i)
@@ -396,9 +404,9 @@ SUBSCRIBE Message {
 A unique idenfier chosen by the subscriber.
 A Subscribe ID MUST NOT be reused within the same session, even if the prior subscription has been closed.
 
-**Broadcast Name**:
-The name of the broadcast.
-A zero-sized name is valid but not recommended.
+**Broadcast Path**:
+The part of the broadcast.
+A zero-sized path is valid but not recommended.
 
 **Track Name**:
 The name of the track.
@@ -494,7 +502,8 @@ The INFO_REQUEST message is used to request an INFO response.
 
 ~~~
 INFO_REQUEST Message {
-  Broadcast Name (b)
+  Broadcast Path Parts (i)
+  [ Broadcast Path Part (b) ]
   Track Name (b)
 }
 ~~~
@@ -505,7 +514,8 @@ A subscriber can request a byte offset within a Group with a FETCH message.
 
 ~~~
 FETCH Message {
-  Broadcast Name (b)
+  Broadcast Path Parts (i)
+  [ Broadcast Path Part (b) ]
   Track Name (b)
   Track Priority (i)
   Group Sequence (i)
@@ -594,6 +604,11 @@ A generic library or relay MUST NOT inspect or modify the contents unless otherw
 
 # Appendix: Changelog
 Notable changes between versions of this draft.
+
+## moq-transfork-03
+- Broadcast Path consists of byte slices instead of a string.
+- ANNOUNCE contains a status instead of toggling.
+- ANNOUNCE contains the suffix instead of the full path.
 
 ## moq-transfork-02
 - Document version numbers.
