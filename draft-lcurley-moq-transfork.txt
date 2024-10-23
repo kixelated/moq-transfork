@@ -4,8 +4,8 @@
 
 moq                                                            L. Curley
 Internet-Draft                                                   Discord
-Intended status: Informational                            4 October 2024
-Expires: 7 April 2025
+Intended status: Informational                           23 October 2024
+Expires: 26 April 2025
 
 
                       Media over QUIC - Transfork
@@ -48,7 +48,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 7 April 2025.
+   This Internet-Draft will expire on 26 April 2025.
 
 Copyright Notice
 
@@ -104,16 +104,17 @@ Table of Contents
      5.14. GROUP_DROP
      5.15. FRAME
    6.  Appendix: Changelog
-     6.1.  moq-transfork-02
-     6.2.  moq-transfork-01
-     6.3.  moq-transfork-00
-       6.3.1.  Bikeshedding
-       6.3.2.  Stream per Group
-       6.3.3.  Subscriber's Choice
-       6.3.4.  Control Streams
-       6.3.5.  Unambiguous Delivery
-       6.3.6.  Fetch via Offset
-       6.3.7.  Track INFO
+     6.1.  moq-transfork-03
+     6.2.  moq-transfork-02
+     6.3.  moq-transfork-01
+     6.4.  moq-transfork-00
+       6.4.1.  Bikeshedding
+       6.4.2.  Stream per Group
+       6.4.3.  Subscriber's Choice
+       6.4.4.  Control Streams
+       6.4.5.  Unambiguous Delivery
+       6.4.6.  Fetch via Offset
+       6.4.7.  Track INFO
    7.  Appendix: Media Use-Cases
      7.1.  Video
        7.1.1.  Group of Pictures
@@ -231,20 +232,22 @@ Table of Contents
    session may be used to publish and subscribe to multiple, potentially
    unrelated, broadcasts.
 
-   A broadcast path is an a UTF-8 string which may be discovered using a
-   prefix.  Correlated broadcasts should utilize this and share a path,
-   for example: meeting.1234.alice and meeting.1234.bob A subscriber
-   could then discover all broadcasts starting with meeting.1234.
-
-   The application determines if tracks within a broadcast are
-   correlated.  For example, a "video" track and "audio" track could
-   share timestamp domains.  This is possible as a broadcast is created
-   by a single publisher, avoiding the need for clock synchronization.
+   A broadcast path consists of string parts used to route subscriptions
+   to the correct publisher.  The application determines the structure
+   and encoding of the path.  A broadcast path MUST be unique within a
+   session and SHOULD contain entropy to avoid collisions with other
+   sessions, for example timestamps or random values.
 
    A publisher can advertise available broadcasts via an ANNOUNCE
    message.  This allows a subscriber to dynamically discover available
-   broadcasts.  Alternatively, the application can discover broadcasts
-   via an out-of-band mechanism.
+   broadcasts based on a shared prefix.  For example: ["meeting", 1234,
+   "alice"] and ["meeting", 1234, "bob"] Alternatively, the application
+   can discover broadcasts via an out-of-band mechanism.
+
+   The application determines if tracks within a broadcast are
+   correlated, perhaps utilizing a shared clock or sequence number.
+   This can avoid the need for clock synchronization as a broadcast can
+   only have one publisher.
 
 3.3.  Track
 
@@ -411,21 +414,19 @@ Table of Contents
    determine broadcast paths out-of-band.
 
    The subscriber MUST start the stream with a ANNOUNCE_INTEREST
-   message.  The publisher MAY reply with any number of ANNOUNCE message
-   to indicate when a broadcast has started or stopped.  Both sides may
-   close/reset the stream at any point.
+   message.  The publisher MAY reply with an error code if the prefix is
+   too expansive.  Otherwise, the publisher SHOULD reply with an
+   ANNOUNCE message to indicate when a broadcast has started or stopped.
+   Both sides may close/reset the stream at any point.
 
-   The publisher SHOULD send an ANNOUNCE message for each broadcast path
-   that matches the prefix.  There MAY be multiple Announce Streams,
-   potentially containing overlapping prefixes, that get their own copy
-   of each ANNOUNCE.  The publisher MAY choose to not ANNOUNCE matching
-   streams, such as when they are private or the prefix is too
-   expansive.  The publisher SHOULD close the stream with an error code
-   when this happens.
+   Prefix matching is done on a part-by-part basis.  For example, a
+   prefix of ["meeting"] would match ["meeting", "1234"] but not
+   ["meeting-1234"].  The application is responsible for the encoding of
+   the prefix, taking case to avoid any ambiguity such as multiple ways
+   to encode the same value.
 
-   When a broadcast has ended, the publisher sends an ANNOUNCE message
-   with an identical name.  This will toggle the availability of the
-   broadcast and avoids the need for a dedicated UNANNOUNCE message.
+   There MAY be multiple Announce Streams, potentially containing
+   overlapping prefixes, that get their own copy of each ANNOUNCE.
 
 4.4.3.  Subscribe
 
@@ -514,9 +515,6 @@ Table of Contents
 
    (b): VarInt size followed by that many indicated bytes.
 
-   (s): A VarInt size followed by that many indicated bytes.  The bytes
-   MUST be a valid UTF-8 string.
-
 5.2.  SESSION_CLIENT
 
    The client advertises supported versions and any extensions.
@@ -561,23 +559,34 @@ Table of Contents
    any cooresponding ANNOUNCE messages.
 
    ANNOUNCE_INTEREST Message {
-     Broadcast Prefix (s),
+     Broadcast Prefix Parts (i),
+     [ Broadcast Prefix Part (b) ]
    }
 
-   *Broadcast Prefix*: Indicate interest for any broadcasts that start
-   with this prefix.  The publisher SHOULD reply with an ANNOUNCE
-   message for any matching broadcasts.
+   *Broadcast Prefix*: Indicate interest for any broadcast paths that
+   start with this prefix.  This uses byte-for-byte matching on each
+   prefix part.
+
+   The publisher MAY close the stream with an error code if the prefix
+   is too expansive.  Otherwise, the publisher SHOULD respond with an
+   ANNOUNCE message for any matching broadcasts.
 
 5.6.  ANNOUNCE
 
-   A publisher sends an ANNOUNCE message to advertise a broadcast.
+   A publisher sends an ANNOUNCE message to advertise a broadcast.  Only
+   the suffix is encoded on the wire, the full path is constructed by
+   prepending the prefix from the cooresponding ANNOUNCE_INTEREST.
 
    ANNOUNCE Message {
-     Broadcast Path (s),
+     Status (i),
+     Broadcast Suffix Parts (i),
+     [ Broadcast Suffix Part (b) ]
    }
 
-   *Broadcast Path* The broadcast path.  This MUST start with the
-   requested prefix.
+   *Status*: A flag indicating if the broadcast is active (1) or ended
+   (0).  Other values are reserved for future use.
+
+   *Broadcast Suffix*: The broadcast path suffix.
 
 5.7.  SUBSCRIBE
 
@@ -585,7 +594,8 @@ Table of Contents
 
    SUBSCRIBE Message {
      Subscribe ID (i)
-     Broadcast Name (b)
+     Broadcast Path Parts (i)
+     [ Broadcast Path Part (b) ]
      Track Name (b)
      Track Priority (i)
      Group Order (i)
@@ -598,7 +608,7 @@ Table of Contents
    Subscribe ID MUST NOT be reused within the same session, even if the
    prior subscription has been closed.
 
-   *Broadcast Name*: The name of the broadcast.  A zero-sized name is
+   *Broadcast Path*: The part of the broadcast.  A zero-sized path is
    valid but not recommended.
 
    *Track Name*: The name of the track.  A zero-sized name is valid but
@@ -689,7 +699,8 @@ Table of Contents
    The INFO_REQUEST message is used to request an INFO response.
 
    INFO_REQUEST Message {
-     Broadcast Name (b)
+     Broadcast Path Parts (i)
+     [ Broadcast Path Part (b) ]
      Track Name (b)
    }
 
@@ -699,7 +710,8 @@ Table of Contents
    message.
 
    FETCH Message {
-     Broadcast Name (b)
+     Broadcast Path Parts (i)
+     [ Broadcast Path Part (b) ]
      Track Name (b)
      Track Priority (i)
      Group Sequence (i)
@@ -775,7 +787,15 @@ Table of Contents
 
    Notable changes between versions of this draft.
 
-6.1.  moq-transfork-02
+6.1.  moq-transfork-03
+
+   *  Broadcast Path consists of byte slices instead of a string.
+
+   *  ANNOUNCE contains a status instead of toggling.
+
+   *  ANNOUNCE contains the suffix instead of the full path.
+
+6.2.  moq-transfork-02
 
    *  Document version numbers.
 
@@ -783,7 +803,7 @@ Table of Contents
 
    *  Remove ROLE extension.
 
-6.2.  moq-transfork-01
+6.3.  moq-transfork-01
 
    *  Removed datagram support
 
@@ -799,32 +819,32 @@ Table of Contents
 
    Datagram and native QUIC support may be re-added in a future draft.
 
-6.3.  moq-transfork-00
+6.4.  moq-transfork-00
 
    Based on moq-transport-03.  The significant changes have been broken
    into sections.
 
-6.3.1.  Bikeshedding
+6.4.1.  Bikeshedding
 
    *  Renamed Track Namespace to Broadcast
 
    *  Renamed Object to Frame
 
-6.3.2.  Stream per Group
+6.4.2.  Stream per Group
 
    The MoQ WG couldn't agree on how to utilize QUIC streams, so the
    compromise was to support multiple modes and let the application
    choose.  This is a headache for too many reasons to list.
    MoqTransfork only "supports" a stream per group.
 
-6.3.3.  Subscriber's Choice
+6.4.3.  Subscriber's Choice
 
    MoqTransfork moves most decision making to the subscriber, so a
    single publisher can support multiple diverse subscribers.  The
    publisher provides a default value to resolve conflicts when
    deduplicating.
 
-6.3.4.  Control Streams
+6.4.4.  Control Streams
 
    Transactions like Announce and Subscribe use their own control
    stream, inheriting the stream state machine for error handling.
@@ -834,7 +854,7 @@ Table of Contents
    SUBSCRIBE_OK - Removed SUBSCRIBE_ERROR - Removed SUBSCRIBE_DONE -
    Removed UNSUBSCRIBE
 
-6.3.5.  Unambiguous Delivery
+6.4.5.  Unambiguous Delivery
 
    With MoqTransfork, the subscriber knows if a group/frame will be
    delivered or was dropped.
@@ -845,13 +865,13 @@ Table of Contents
 
    *  GROUP_DROP when a group is dropped.
 
-6.3.6.  Fetch via Offset
+6.4.6.  Fetch via Offset
 
    A reconnecting subscriber can request the retransmission of a group/
    stream at a given byte offset.  Resumption in MoqTransport is more
    complicated and can only occur at object/group boundaries.
 
-6.3.7.  Track INFO
+6.4.7.  Track INFO
 
    Added a mechanism to request information about the current track
    state.
@@ -1371,9 +1391,9 @@ Table of Contents
 
    [moqt]     Curley, L., Pugin, K., Nandakumar, S., Vasiliev, V., and
               I. Swett, "Media over QUIC Transport", Work in Progress,
-              Internet-Draft, draft-ietf-moq-transport-06, 19 September
+              Internet-Draft, draft-ietf-moq-transport-07, 21 October
               2024, <https://datatracker.ietf.org/doc/html/draft-ietf-
-              moq-transport-06>.
+              moq-transport-07>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
