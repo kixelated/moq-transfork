@@ -1,6 +1,6 @@
 {
   "magic": "E!vIA5L86J2I",
-  "timestamp": "2024-10-22T00:08:19.617100+00:00",
+  "timestamp": "2024-10-24T00:08:09.959927+00:00",
   "repo": "kixelated/moq-transfork",
   "labels": [
     {
@@ -75,6 +75,34 @@
       "mergedBy": "kixelated",
       "mergeCommit": {
         "oid": "f547de8f8e3e90ccc075727b389e93f38e29c02f"
+      },
+      "comments": [],
+      "reviews": []
+    },
+    {
+      "number": 2,
+      "id": "PR_kwDOLz_x-M5_qIKT",
+      "title": "Split the broadcast name into a path array",
+      "url": "https://github.com/kixelated/moq-transfork/pull/2",
+      "state": "MERGED",
+      "author": "kixelated",
+      "authorAssociation": "OWNER",
+      "assignees": [],
+      "labels": [],
+      "body": "",
+      "createdAt": "2024-10-23T18:09:41Z",
+      "updatedAt": "2024-10-23T18:16:38Z",
+      "baseRepository": "kixelated/moq-transfork",
+      "baseRefName": "main",
+      "baseRefOid": "8c342397a7ead7311d3f234f2f4bbf1264558e91",
+      "headRepository": "kixelated/moq-transfork",
+      "headRefName": "broadcast-path",
+      "headRefOid": "843f4131bfd7ca101d081d1f585468699b807f74",
+      "closedAt": "2024-10-23T18:16:33Z",
+      "mergedAt": "2024-10-23T18:16:32Z",
+      "mergedBy": "kixelated",
+      "mergeCommit": {
+        "oid": "11313f83057393b49747cc8cd2b63bf6b3d848e9"
       },
       "comments": [],
       "reviews": []
