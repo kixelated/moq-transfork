@@ -7,20 +7,20 @@
 <title>Media over QUIC - Transfork</title>
 <meta content="Luke Curley" name="author">
 <meta content="
-       MoqTransfork is designed to serve a broadcast to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
+       MoqTransfork is designed to serve live tracks to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
 MoqTransfork itself is a media agnostic transport, allowing relays and CDNs to forward the most important content under degraded networks without knowledge of codecs, containers, or even if the content is fully encrypted.
 Higher level protocols specify how to use MoqTransfork to encode and deliver video, audio, messages, or any form of live content. 
     " name="description">
-<meta content="xml2rfc 3.23.2" name="generator">
+<meta content="xml2rfc 3.24.0" name="generator">
 <meta content="draft-lcurley-moq-transfork-latest" name="ietf.draft">
 <!-- Generator version information:
-  xml2rfc 3.23.2
+  xml2rfc 3.24.0
     Python 3.12.7
     ConfigArgParse 1.7
     google-i18n-address 3.1.1
     intervaltree 3.1.0
     Jinja2 3.1.4
-    lxml 4.9.4
+    lxml 5.3.0
     platformdirs 4.3.6
     pycountry 22.3.5
     PyYAML 6.0.1
@@ -1025,11 +1025,11 @@ svg :is([fill="white"], [fill^="#fff"]) {
 <thead><tr>
 <td class="left">Internet-Draft</td>
 <td class="center">moqtf</td>
-<td class="right">October 2024</td>
+<td class="right">November 2024</td>
 </tr></thead>
 <tfoot><tr>
 <td class="left">Curley</td>
-<td class="center">Expires 26 April 2025</td>
+<td class="center">Expires 30 May 2025</td>
 <td class="right">[Page]</td>
 </tr></tfoot>
 </table>
@@ -1042,12 +1042,12 @@ svg :is([fill="white"], [fill^="#fff"]) {
 <dd class="internet-draft">draft-lcurley-moq-transfork-latest</dd>
 <dt class="label-published">Published:</dt>
 <dd class="published">
-<time datetime="2024-10-23" class="published">23 October 2024</time>
+<time datetime="2024-11-26" class="published">26 November 2024</time>
     </dd>
 <dt class="label-intended-status">Intended Status:</dt>
 <dd class="intended-status">Informational</dd>
 <dt class="label-expires">Expires:</dt>
-<dd class="expires"><time datetime="2025-04-26">26 April 2025</time></dd>
+<dd class="expires"><time datetime="2025-05-30">30 May 2025</time></dd>
 <dt class="label-authors">Author:</dt>
 <dd class="authors">
 <div class="author">
@@ -1060,7 +1060,7 @@ svg :is([fill="white"], [fill^="#fff"]) {
 <h1 id="title">Media over QUIC - Transfork</h1>
 <section id="section-abstract">
       <h2 id="abstract"><a href="#abstract" class="selfRef">Abstract</a></h2>
-<p id="section-abstract-1">MoqTransfork is designed to serve a broadcast to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
+<p id="section-abstract-1">MoqTransfork is designed to serve live tracks to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
 MoqTransfork itself is a media agnostic transport, allowing relays and CDNs to forward the most important content under degraded networks without knowledge of codecs, containers, or even if the content is fully encrypted.
 Higher level protocols specify how to use MoqTransfork to encode and deliver video, audio, messages, or any form of live content.<a href="#section-abstract-1" class="pilcrow">¶</a></p>
 </section>
@@ -1094,7 +1094,7 @@ Higher level protocols specify how to use MoqTransfork to encode and deliver vid
         time. It is inappropriate to use Internet-Drafts as reference
         material or to cite them other than as "work in progress."<a href="#section-boilerplate.1-3" class="pilcrow">¶</a></p>
 <p id="section-boilerplate.1-4">
-        This Internet-Draft will expire on 26 April 2025.<a href="#section-boilerplate.1-4" class="pilcrow">¶</a></p>
+        This Internet-Draft will expire on 30 May 2025.<a href="#section-boilerplate.1-4" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="copyright">
@@ -1136,19 +1136,16 @@ Higher level protocols specify how to use MoqTransfork to encode and deliver vid
                 <p id="section-toc.1-1.3.2.1.1" class="keepWithNext"><a href="#section-3.1" class="auto internal xref">3.1</a>.  <a href="#name-session" class="internal xref">Session</a></p>
 </li>
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.2">
-                <p id="section-toc.1-1.3.2.2.1"><a href="#section-3.2" class="auto internal xref">3.2</a>.  <a href="#name-broadcast" class="internal xref">Broadcast</a></p>
+                <p id="section-toc.1-1.3.2.2.1"><a href="#section-3.2" class="auto internal xref">3.2</a>.  <a href="#name-track" class="internal xref">Track</a></p>
 </li>
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.3">
-                <p id="section-toc.1-1.3.2.3.1"><a href="#section-3.3" class="auto internal xref">3.3</a>.  <a href="#name-track" class="internal xref">Track</a></p>
+                <p id="section-toc.1-1.3.2.3.1"><a href="#section-3.3" class="auto internal xref">3.3</a>.  <a href="#name-group" class="internal xref">Group</a></p>
 </li>
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.4">
-                <p id="section-toc.1-1.3.2.4.1"><a href="#section-3.4" class="auto internal xref">3.4</a>.  <a href="#name-group" class="internal xref">Group</a></p>
+                <p id="section-toc.1-1.3.2.4.1"><a href="#section-3.4" class="auto internal xref">3.4</a>.  <a href="#name-frame" class="internal xref">Frame</a></p>
 </li>
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.5">
-                <p id="section-toc.1-1.3.2.5.1"><a href="#section-3.5" class="auto internal xref">3.5</a>.  <a href="#name-frame" class="internal xref">Frame</a></p>
-</li>
-              <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.3.2.6">
-                <p id="section-toc.1-1.3.2.6.1"><a href="#section-3.6" class="auto internal xref">3.6</a>.  <a href="#name-liveliness" class="internal xref">Liveliness</a></p>
+                <p id="section-toc.1-1.3.2.5.1"><a href="#section-3.5" class="auto internal xref">3.5</a>.  <a href="#name-liveliness" class="internal xref">Liveliness</a></p>
 </li>
             </ul>
 </li>
@@ -1350,7 +1347,7 @@ Higher level protocols specify how to use MoqTransfork to encode and deliver vid
                 </ul>
 </li>
               <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7.2.5">
-                <p id="section-toc.1-1.7.2.5.1"><a href="#section-7.5" class="auto internal xref">7.5</a>.  <a href="#name-broadcast-2" class="internal xref">Broadcast</a></p>
+                <p id="section-toc.1-1.7.2.5.1"><a href="#section-7.5" class="auto internal xref">7.5</a>.  <a href="#name-broadcast" class="internal xref">Broadcast</a></p>
 <ul class="compact toc ulBare ulEmpty">
 <li class="compact toc ulBare ulEmpty" id="section-toc.1-1.7.2.5.2.1">
                     <p id="section-toc.1-1.7.2.5.2.1.1"><a href="#section-7.5.1" class="auto internal xref">7.5.1</a>.  <a href="#name-abr" class="internal xref">ABR</a></p>
@@ -1433,22 +1430,19 @@ The working group will keep making progress and hopefully many of these ideas wi
 <p id="section-3-1">MoqTransfork consists of:<a href="#section-3-1" class="pilcrow">¶</a></p>
 <ul class="normal">
 <li class="normal" id="section-3-2.1">
-          <p id="section-3-2.1.1"><strong>Session</strong>: An established connection between a client and server used to transmit any number of Broadcasts.<a href="#section-3-2.1.1" class="pilcrow">¶</a></p>
+          <p id="section-3-2.1.1"><strong>Session</strong>: An established connection between a client and server used to transmit any number of Tracks by path.<a href="#section-3-2.1.1" class="pilcrow">¶</a></p>
 </li>
         <li class="normal" id="section-3-2.2">
-          <p id="section-3-2.2.1"><strong>Broadcast</strong>: A collection of Tracks from a single producer (client). This is primarily used for routing, but Tracks within a Broadcast may be correlated.<a href="#section-3-2.2.1" class="pilcrow">¶</a></p>
+          <p id="section-3-2.2.1"><strong>Track</strong>: An append-only series of Groups, each of which can be delivered and decoded independently.<a href="#section-3-2.2.1" class="pilcrow">¶</a></p>
 </li>
         <li class="normal" id="section-3-2.3">
-          <p id="section-3-2.3.1"><strong>Track</strong>: An append-only series of Groups, each of which can be delivered and decoded independently.<a href="#section-3-2.3.1" class="pilcrow">¶</a></p>
+          <p id="section-3-2.3.1"><strong>Group</strong>: An append-only series of Frames, each of which are delivered and decoded in order<a href="#section-3-2.3.1" class="pilcrow">¶</a></p>
 </li>
         <li class="normal" id="section-3-2.4">
-          <p id="section-3-2.4.1"><strong>Group</strong>: An append-only series of Frames, each of which are delivered and decoded in order<a href="#section-3-2.4.1" class="pilcrow">¶</a></p>
-</li>
-        <li class="normal" id="section-3-2.5">
-          <p id="section-3-2.5.1"><strong>Frame</strong>: A sized payload of bytes, intended to represent a single moment in time.<a href="#section-3-2.5.1" class="pilcrow">¶</a></p>
+          <p id="section-3-2.4.1"><strong>Frame</strong>: A sized payload of bytes, intended to represent a single moment in time.<a href="#section-3-2.4.1" class="pilcrow">¶</a></p>
 </li>
       </ul>
-<p id="section-3-3">The application determines how to split data into broadcasts, tracks, groups, and frames.
+<p id="section-3-3">The application determines how to split data into tracks, groups, and frames.
 MoqTransfork only is responsible for the networking and deduplication by utilizing rules encoded in headers.
 This provides robust and generic one-to-many transmission, even for latency sensitive applications.<a href="#section-3-3" class="pilcrow">¶</a></p>
 <div id="session">
@@ -1464,76 +1458,63 @@ A broadcaster could establish a session with an CDN ingest edge while the viewer
 A MoqTransfork session is hop-by-hop, but the application should be designed end-to-end.<a href="#section-3.1-3" class="pilcrow">¶</a></p>
 </section>
 </div>
-<div id="broadcast">
-<section id="section-3.2">
-        <h3 id="name-broadcast">
-<a href="#section-3.2" class="section-number selfRef">3.2. </a><a href="#name-broadcast" class="section-name selfRef">Broadcast</a>
-        </h3>
-<p id="section-3.2-1">A Broadcast is a collection of tracks from a single producer identified by a unique path within the session.
-A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.<a href="#section-3.2-1" class="pilcrow">¶</a></p>
-<p id="section-3.2-2">A broadcast path consists of string parts used to route subscriptions to the correct publisher.
-The application determines the structure and encoding of the path.
-A broadcast path <span class="bcp14">MUST</span> be unique within a session and <span class="bcp14">SHOULD</span> contain entropy to avoid collisions with other sessions, for example timestamps or random values.<a href="#section-3.2-2" class="pilcrow">¶</a></p>
-<p id="section-3.2-3">A publisher can advertise available broadcasts via an ANNOUNCE message.
-This allows a subscriber to dynamically discover available broadcasts based on a shared prefix.
-For example: <code>["meeting", 1234, "alice"]</code> and <code>["meeting", 1234, "bob"]</code>
-Alternatively, the application can discover broadcasts via an out-of-band mechanism.<a href="#section-3.2-3" class="pilcrow">¶</a></p>
-<p id="section-3.2-4">The application determines if tracks within a broadcast are correlated, perhaps utilizing a shared clock or sequence number.
-This can avoid the need for clock synchronization as a broadcast can only have one publisher.<a href="#section-3.2-4" class="pilcrow">¶</a></p>
-</section>
-</div>
 <div id="track">
-<section id="section-3.3">
+<section id="section-3.2">
         <h3 id="name-track">
-<a href="#section-3.3" class="section-number selfRef">3.3. </a><a href="#name-track" class="section-name selfRef">Track</a>
+<a href="#section-3.2" class="section-number selfRef">3.2. </a><a href="#name-track" class="section-name selfRef">Track</a>
         </h3>
-<p id="section-3.3-1">A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.<a href="#section-3.3-1" class="pilcrow">¶</a></p>
-<p id="section-3.3-2">Each subscription is scoped to a single Track.
+<p id="section-3.2-1">A Track is a series of Groups identified by a unique path.
+A MoqTransfork session is used to publish and subscribe to multiple, potentially unrelated, tracks.<a href="#section-3.2-1" class="pilcrow">¶</a></p>
+<p id="section-3.2-2">A Track path consists of string parts used to route subscriptions to the correct publisher.
+The application determines the structure and encoding of the path.
+A Track path <span class="bcp14">MUST</span> be unique within a Session and <span class="bcp14">SHOULD</span> contain entropy to avoid collisions with other sessions, for example timestamps or random values.<a href="#section-3.2-2" class="pilcrow">¶</a></p>
+<p id="section-3.2-3">A publisher can advertise available tracks via an ANNOUNCE message.
+This allows a subscriber to dynamically discover available tracks based on a prefix.
+For example: <code>["meeting", "1234", "alice"]</code> and <code>["meeting", "1234", "bob"]</code>
+Alternatively, the application can discover tracks via an out-of-band mechanism.<a href="#section-3.2-3" class="pilcrow">¶</a></p>
+<p id="section-3.2-4">Each subscription is scoped to a single Track.
 A subscription will always start at a Group boundary, either the latest group or a specified sequence number.
 A subscriber chooses the ordering and priority of each subscription, hinting to the publisher which Track should arrive first during congestion.
-This is critical for a decent user experience during network degradation and the core reason why QUIC can offer real-time latency.<a href="#section-3.3-2" class="pilcrow">¶</a></p>
-<p id="section-3.3-3">There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
-This is often done with a named "catalog" track that lists all available tracks and their properties.
-An application may choose to use static and/or dynamic track names.<a href="#section-3.3-3" class="pilcrow">¶</a></p>
+This is critical for a decent user experience during network degradation and the core reason why QUIC can offer real-time latency.<a href="#section-3.2-4" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="group">
-<section id="section-3.4">
+<section id="section-3.3">
         <h3 id="name-group">
-<a href="#section-3.4" class="section-number selfRef">3.4. </a><a href="#name-group" class="section-name selfRef">Group</a>
+<a href="#section-3.3" class="section-number selfRef">3.3. </a><a href="#name-group" class="section-name selfRef">Group</a>
         </h3>
-<p id="section-3.4-1">A Group is an ordered stream of Frames within a Track.<a href="#section-3.4-1" class="pilcrow">¶</a></p>
-<p id="section-3.4-2">A group is served by a dedicated QUIC stream which may be closed on completion, reset by the publisher, or cancelled by the subscriber.
+<p id="section-3.3-1">A Group is an ordered stream of Frames within a Track.<a href="#section-3.3-1" class="pilcrow">¶</a></p>
+<p id="section-3.3-2">A group is served by a dedicated QUIC stream which may be closed on completion, reset by the publisher, or cancelled by the subscriber.
 An active subscription involves delivering multiple potential concurrent groups.
 The Frames within a Group will arrive reliably and in order thanks to the QUIC stream.
-However, Groups within a Track can arrive in any order or not at all, and which the application should be prepared to handle.<a href="#section-3.4-2" class="pilcrow">¶</a></p>
-<p id="section-3.4-3">A subscriber may FETCH a specific group starting at a given byte offset.
-This is similar to a HTTP request and may be used to recover from partial failures among other things.<a href="#section-3.4-3" class="pilcrow">¶</a></p>
+However, Groups within a Track can arrive in any order or not at all, and which the application should be prepared to handle.<a href="#section-3.3-2" class="pilcrow">¶</a></p>
+<p id="section-3.3-3">A subscriber may FETCH a specific group starting at a given byte offset.
+This is similar to a HTTP request and may be used to recover from partial failures among other things.<a href="#section-3.3-3" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="frame">
-<section id="section-3.5">
+<section id="section-3.4">
         <h3 id="name-frame">
-<a href="#section-3.5" class="section-number selfRef">3.5. </a><a href="#name-frame" class="section-name selfRef">Frame</a>
+<a href="#section-3.4" class="section-number selfRef">3.4. </a><a href="#name-frame" class="section-name selfRef">Frame</a>
         </h3>
-<p id="section-3.5-1">A Frame is a payload of bytes within a Group.<a href="#section-3.5-1" class="pilcrow">¶</a></p>
-<p id="section-3.5-2">A frame is used to represent a chunk of data with a known size.
-A frame should represent a single moment in time and avoid any buffering that would increase latency.<a href="#section-3.5-2" class="pilcrow">¶</a></p>
+<p id="section-3.4-1">A Frame is a payload of bytes within a Group.<a href="#section-3.4-1" class="pilcrow">¶</a></p>
+<p id="section-3.4-2">A frame is used to represent a chunk of data with a known size.
+A frame should represent a single moment in time and avoid any buffering that would increase latency.<a href="#section-3.4-2" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="liveliness">
-<section id="section-3.6">
+<section id="section-3.5">
         <h3 id="name-liveliness">
-<a href="#section-3.6" class="section-number selfRef">3.6. </a><a href="#name-liveliness" class="section-name selfRef">Liveliness</a>
+<a href="#section-3.5" class="section-number selfRef">3.5. </a><a href="#name-liveliness" class="section-name selfRef">Liveliness</a>
         </h3>
-<p id="section-3.6-1">A media protocol can only be considered "live" if it can handle degraded network congestion.
-MoqTransfork handles this by prioritizing the most important media while the remainder is starved.<a href="#section-3.6-1" class="pilcrow">¶</a></p>
-<p id="section-3.6-2">The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
+<p id="section-3.5-1">A media protocol can only be considered "live" if it can handle degraded network congestion.
+MoqTransfork handles this by prioritizing the most important media while the remainder is starved.<a href="#section-3.5-1" class="pilcrow">¶</a></p>
+<p id="section-3.5-2">The importance of each track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
 This is done via the Track Priority and the Group Order.
-Any data that is excessively starved may be dropped (by either endpoint) rather than block the live stream.<a href="#section-3.6-2" class="pilcrow">¶</a></p>
-<p id="section-3.6-3">A publisher that serves multiple sessions, commonly a relay, should prioritize on a per-session basis.
+Any data that is excessively starved may be dropped (by either endpoint) rather than block the live stream.<a href="#section-3.5-2" class="pilcrow">¶</a></p>
+<p id="section-3.5-3">A publisher that serves multiple sessions, commonly a relay, should prioritize on a per-session basis.
 Alice may want real-time latency with a preference for audio, while Bob may want reliable playback while audio is muted.
-A relay <span class="bcp14">MAY</span> forward subscriber preferences upstream, but when there is a conflict (like the above example), the publisher's preference should be used as a tiebreaker.<a href="#section-3.6-3" class="pilcrow">¶</a></p>
+A relay <span class="bcp14">MAY</span> forward subscriber preferences upstream, but when there is a conflict (like the above example), the publisher's preference should be used as a tiebreaker.<a href="#section-3.5-3" class="pilcrow">¶</a></p>
 </section>
 </div>
 </section>
@@ -1659,11 +1640,11 @@ The server chooses one of the supported versions, or errors if none of the listi
           <h4 id="name-announce">
 <a href="#section-4.4.2" class="section-number selfRef">4.4.2. </a><a href="#name-announce" class="section-name selfRef">Announce</a>
           </h4>
-<p id="section-4.4.2-1">A subscriber can open a Announce Stream to discover broadcasts matching a prefix.
-This is <span class="bcp14">OPTIONAL</span> and the application can determine broadcast paths out-of-band.<a href="#section-4.4.2-1" class="pilcrow">¶</a></p>
+<p id="section-4.4.2-1">A subscriber can open a Announce Stream to discover tracks matching a prefix.
+This is <span class="bcp14">OPTIONAL</span> and the application can determine track paths out-of-band.<a href="#section-4.4.2-1" class="pilcrow">¶</a></p>
 <p id="section-4.4.2-2">The subscriber <span class="bcp14">MUST</span> start the stream with a ANNOUNCE_INTEREST message.
 The publisher <span class="bcp14">MAY</span> reply with an error code if the prefix is too expansive.
-Otherwise, the publisher <span class="bcp14">SHOULD</span> reply with an ANNOUNCE message to indicate when a broadcast has started or stopped.
+Otherwise, the publisher <span class="bcp14">SHOULD</span> reply with an ANNOUNCE message to indicate when a track has started or stopped.
 Both sides may close/reset the stream at any point.<a href="#section-4.4.2-2" class="pilcrow">¶</a></p>
 <p id="section-4.4.2-3">Prefix matching is done on a part-by-part basis.
 For example, a prefix of <code>["meeting"]</code> would match <code>["meeting", "1234"]</code> but not <code>["meeting-1234"]</code>.
@@ -1676,7 +1657,7 @@ The application is responsible for the encoding of the prefix, taking case to av
           <h4 id="name-subscribe">
 <a href="#section-4.4.3" class="section-number selfRef">4.4.3. </a><a href="#name-subscribe" class="section-name selfRef">Subscribe</a>
           </h4>
-<p id="section-4.4.3-1">A subscriber can open a Subscribe Stream to request a named track within a broadcast.<a href="#section-4.4.3-1" class="pilcrow">¶</a></p>
+<p id="section-4.4.3-1">A subscriber can open a Subscribe Stream to request a Track.<a href="#section-4.4.3-1" class="pilcrow">¶</a></p>
 <p id="section-4.4.3-2">The subscriber <span class="bcp14">MUST</span> start a Info Stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
 The publisher <span class="bcp14">MUST</span> reply with an INFO message followed by any number of GROUP_DROPPED messages.
 A publisher <span class="bcp14">MAY</span> reset the stream at any point if it is unable to serve the subscription.<a href="#section-4.4.3-2" class="pilcrow">¶</a></p>
@@ -1842,16 +1823,16 @@ A value of 0 indicates that this information is not available.<a href="#section-
 <div class="alignLeft art-text artwork" id="section-5.5-2">
 <pre>
 ANNOUNCE_INTEREST Message {
-  Broadcast Prefix Parts (i),
-  [ Broadcast Prefix Part (b) ]
+  Track Prefix Parts (i),
+  [ Track Prefix Part (b) ]
 }
 </pre><a href="#section-5.5-2" class="pilcrow">¶</a>
 </div>
-<p id="section-5.5-3"><strong>Broadcast Prefix</strong>:
-Indicate interest for any broadcast paths that start with this prefix.
+<p id="section-5.5-3"><strong>Track Prefix</strong>:
+Indicate interest for any tracks that start with this prefix.
 This uses byte-for-byte matching on each prefix part.<a href="#section-5.5-3" class="pilcrow">¶</a></p>
 <p id="section-5.5-4">The publisher <span class="bcp14">MAY</span> close the stream with an error code if the prefix is too expansive.
-Otherwise, the publisher <span class="bcp14">SHOULD</span> respond with an ANNOUNCE message for any matching broadcasts.<a href="#section-5.5-4" class="pilcrow">¶</a></p>
+Otherwise, the publisher <span class="bcp14">SHOULD</span> respond with an ANNOUNCE message for any matching tracks.<a href="#section-5.5-4" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="announce-1">
@@ -1859,22 +1840,22 @@ Otherwise, the publisher <span class="bcp14">SHOULD</span> respond with an ANNOU
         <h3 id="name-announce-2">
 <a href="#section-5.6" class="section-number selfRef">5.6. </a><a href="#name-announce-2" class="section-name selfRef">ANNOUNCE</a>
         </h3>
-<p id="section-5.6-1">A publisher sends an ANNOUNCE message to advertise a broadcast.
+<p id="section-5.6-1">A publisher sends an ANNOUNCE message to advertise a track.
 Only the suffix is encoded on the wire, the full path is constructed by prepending the prefix from the cooresponding ANNOUNCE_INTEREST.<a href="#section-5.6-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-5.6-2">
 <pre>
 ANNOUNCE Message {
   Status (i),
-  Broadcast Suffix Parts (i),
-  [ Broadcast Suffix Part (b) ]
+  Track Suffix Parts (i),
+  [ Track Suffix Part (b) ]
 }
 </pre><a href="#section-5.6-2" class="pilcrow">¶</a>
 </div>
 <p id="section-5.6-3"><strong>Status</strong>:
-A flag indicating if the broadcast is active (1) or ended (0).
+A flag indicating if the track is active (1) or ended (0).
 Other values are reserved for future use.<a href="#section-5.6-3" class="pilcrow">¶</a></p>
-<p id="section-5.6-4"><strong>Broadcast Suffix</strong>:
-The broadcast path suffix.<a href="#section-5.6-4" class="pilcrow">¶</a></p>
+<p id="section-5.6-4"><strong>Track Suffix</strong>:
+The track path suffix.<a href="#section-5.6-4" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="subscribe-1">
@@ -1887,9 +1868,8 @@ The broadcast path suffix.<a href="#section-5.6-4" class="pilcrow">¶</a></p>
 <pre>
 SUBSCRIBE Message {
   Subscribe ID (i)
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
   Track Priority (i)
   Group Order (i)
   Group Expires (i)
@@ -1901,12 +1881,12 @@ SUBSCRIBE Message {
 <p id="section-5.7-3"><strong>Subscribe ID</strong>:
 A unique idenfier chosen by the subscriber.
 A Subscribe ID <span class="bcp14">MUST NOT</span> be reused within the same session, even if the prior subscription has been closed.<a href="#section-5.7-3" class="pilcrow">¶</a></p>
-<p id="section-5.7-4"><strong>Broadcast Path</strong>:
-The part of the broadcast.
-A zero-sized path is valid but not recommended.<a href="#section-5.7-4" class="pilcrow">¶</a></p>
-<p id="section-5.7-5"><strong>Track Name</strong>:
-The name of the track.
-A zero-sized name is valid but not recommended.<a href="#section-5.7-5" class="pilcrow">¶</a></p>
+<p id="section-5.7-4"><strong>Track Path Parts</strong>:
+The number of parts in the track path.<a href="#section-5.7-4" class="pilcrow">¶</a></p>
+<p id="section-5.7-5"><strong>Track Path</strong>:
+The unique path of the track.
+The number of parts <span class="bcp14">MUST</span> be within the range of 1 to 32.
+The entire path combined <span class="bcp14">MUST</span> be smaller than 1024 bytes.<a href="#section-5.7-5" class="pilcrow">¶</a></p>
 <p id="section-5.7-6"><strong>Track Priority</strong>:
 The transmission priority of the subscription relative to all other active subscriptions within the session.
 The publisher <span class="bcp14">SHOULD</span> transmit <em>higher</em> values first during congestion.<a href="#section-5.7-6" class="pilcrow">¶</a></p>
@@ -1974,8 +1954,7 @@ INFO Message {
 </pre><a href="#section-5.9-2" class="pilcrow">¶</a>
 </div>
 <p id="section-5.9-3"><strong>Track Priority</strong>:
-The priority of this track within the <em>broadcast</em>.
-Note that this is slightly different than SUBSCRIBE, which is scoped to a session not broadcast.
+The priority of this track within the session.
 The publisher <span class="bcp14">SHOULD</span> transmit subscriptions with <em>higher</em> values first during congestion.<a href="#section-5.9-3" class="pilcrow">¶</a></p>
 <p id="section-5.9-4"><strong>Group Latest</strong>:
 The latest group as currently known by the publisher.
@@ -1997,9 +1976,8 @@ The Subscriber's Group Expires value <span class="bcp14">SHOULD</span> be used i
 <div class="alignLeft art-text artwork" id="section-5.10-2">
 <pre>
 INFO_REQUEST Message {
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
 }
 </pre><a href="#section-5.10-2" class="pilcrow">¶</a>
 </div>
@@ -2014,9 +1992,8 @@ INFO_REQUEST Message {
 <div class="alignLeft art-text artwork" id="section-5.11-2">
 <pre>
 FETCH Message {
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
   Track Priority (i)
   Group Sequence (i)
   Group Offset (i)
@@ -2126,13 +2103,16 @@ A generic library or relay <span class="bcp14">MUST NOT</span> inspect or modify
         </h3>
 <ul class="normal">
 <li class="normal" id="section-6.1-1.1">
-            <p id="section-6.1-1.1.1">Broadcast Path consists of byte slices instead of a string.<a href="#section-6.1-1.1.1" class="pilcrow">¶</a></p>
+            <p id="section-6.1-1.1.1">Broadcast and Track have been merged.<a href="#section-6.1-1.1.1" class="pilcrow">¶</a></p>
 </li>
           <li class="normal" id="section-6.1-1.2">
-            <p id="section-6.1-1.2.1">ANNOUNCE contains a status instead of toggling.<a href="#section-6.1-1.2.1" class="pilcrow">¶</a></p>
+            <p id="section-6.1-1.2.1">Tracks now have a variable length path instead of a (broadcast, name) tuple<a href="#section-6.1-1.2.1" class="pilcrow">¶</a></p>
 </li>
           <li class="normal" id="section-6.1-1.3">
-            <p id="section-6.1-1.3.1">ANNOUNCE contains the suffix instead of the full path.<a href="#section-6.1-1.3.1" class="pilcrow">¶</a></p>
+            <p id="section-6.1-1.3.1">ANNOUNCE contains a status instead of toggling.<a href="#section-6.1-1.3.1" class="pilcrow">¶</a></p>
+</li>
+          <li class="normal" id="section-6.1-1.4">
+            <p id="section-6.1-1.4.1">ANNOUNCE contains the suffix instead of the full path.<a href="#section-6.1-1.4.1" class="pilcrow">¶</a></p>
 </li>
         </ul>
 </section>
@@ -2655,13 +2635,14 @@ If viewers have the same priority/order, then the relay should use the viewer's 
 </div>
 </section>
 </div>
-<div id="broadcast-1">
+<div id="broadcast">
 <section id="section-7.5">
-        <h3 id="name-broadcast-2">
-<a href="#section-7.5" class="section-number selfRef">7.5. </a><a href="#name-broadcast-2" class="section-name selfRef">Broadcast</a>
+        <h3 id="name-broadcast">
+<a href="#section-7.5" class="section-number selfRef">7.5. </a><a href="#name-broadcast" class="section-name selfRef">Broadcast</a>
         </h3>
 <p id="section-7.5-1">A broadcast is a collection of tracks from a single producer.
-This usually includes an audio track and/or a video track, but there are reasons to have more than that.<a href="#section-7.5-1" class="pilcrow">¶</a></p>
+This usually includes an audio track and/or a video track, but there are reasons to have more than that.
+This is transparent to moq-transfork, as the a higher level application is responsible for any grouping between tracks.<a href="#section-7.5-1" class="pilcrow">¶</a></p>
 <div id="abr">
 <section id="section-7.5.1">
           <h4 id="name-abr">
@@ -2732,13 +2713,10 @@ Even though these are separate broadcasts from potentially separate origins, Moq
           <h4 id="name-discovery">
 <a href="#section-7.6.1" class="section-number selfRef">7.6.1. </a><a href="#name-discovery" class="section-name selfRef">Discovery</a>
           </h4>
-<p id="section-7.6.1-1">The first step to joining a conference is to discover the available broadcasts.<a href="#section-7.6.1-1" class="pilcrow">¶</a></p>
-<p id="section-7.6.1-2">There is currently no discovery mechanism in MoqTransfork.
-However, an application can build one on top of a MoqTransfork track (of course!).<a href="#section-7.6.1-2" class="pilcrow">¶</a></p>
-<p id="section-7.6.1-3">For example, suppose we have a conference room called <code>room.12345</code>.
-An index service could produce a <code>room.12345</code> track that lists all broadcasts within the room.
-When Alice joins and ANNOUNCES <code>room.12345.alice</code>, the index service could update the <code>room.12345</code> track to add a new FRAME <code>+alice</code>.
-The same can be done to remove her when she leaves.<a href="#section-7.6.1-3" class="pilcrow">¶</a></p>
+<p id="section-7.6.1-1">The first step to joining a conference is to discover the available tracks.<a href="#section-7.6.1-1" class="pilcrow">¶</a></p>
+<p id="section-7.6.1-2">That's where <code>ANNOUNCE</code> comes in.
+The subscriber indicates interest in any tracks that start with a prefix, such as <code>["meeting", "1234"]</code>.
+As new participants join, new tracks are announced, and the subscriber can choose to subscribe to them.<a href="#section-7.6.1-2" class="pilcrow">¶</a></p>
 </section>
 </div>
 <div id="participants">
@@ -2750,27 +2728,27 @@ The same can be done to remove her when she leaves.<a href="#section-7.6.1-3" cl
 This works because <code>SUBSCRIBE priority</code> is scoped to the session and not the broadcast.<a href="#section-7.6.2-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-7.6.2-2">
 <pre>
-SUBSCRIBE broadcast=alice track=audio priority=3
-SUBSCRIBE broadcast=frank track=audio priority=3
-SUBSCRIBE broadcast=alice track=video priority=1
-SUBSCRIBE broadcast=frank track=video priority=1
+SUBSCRIBE track=[alice, audio] priority=3
+SUBSCRIBE track=[frank, audio] priority=3
+SUBSCRIBE track=[alice, video] priority=1
+SUBSCRIBE track=[frank, video] priority=1
 </pre><a href="#section-7.6.2-2" class="pilcrow">¶</a>
 </div>
 <p id="section-7.6.2-3">When Alice starts talking or is focused, we can actually issue a SUBSCRIBE_UPDATE to increase her priority:<a href="#section-7.6.2-3" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-7.6.2-4">
 <pre>
-SUBSCRIBE_UPDATE broadcast=alice track=audio priority=2
-SUBSCRIBE_UPDATE broadcast=frank track=video priority=0
+SUBSCRIBE_UPDATE track=[alice, audio] priority=2
+SUBSCRIBE_UPDATE track=[frank, video] priority=0
 </pre><a href="#section-7.6.2-4" class="pilcrow">¶</a>
 </div>
 <p id="section-7.6.2-5">Note that audio is still more important than video, but Alice is now more important than Frank. (poor Frank)<a href="#section-7.6.2-5" class="pilcrow">¶</a></p>
 <p id="section-7.6.2-6">This concept can further be extended to work with SVC or ABR:<a href="#section-7.6.2-6" class="pilcrow">¶</a></p>
 <div class="alignLeft art-text artwork" id="section-7.6.2-7">
 <pre>
-SUBSCRIBE broadcast=alice track=360p priority=4
-SUBSCRIBE broadcast=frank track=360p priority=3
-SUBSCRIBE broadcast=alice track=720p priority=2
-SUBSCRIBE broadcast=frank track=720p priority=1
+SUBSCRIBE track=[alice, 360p] priority=4
+SUBSCRIBE track=[frank, 360p] priority=3
+SUBSCRIBE track=[alice, 720p] priority=2
+SUBSCRIBE track=[frank, 720p] priority=1
 </pre><a href="#section-7.6.2-7" class="pilcrow">¶</a>
 </div>
 </section>
