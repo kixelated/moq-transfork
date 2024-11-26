@@ -24,7 +24,7 @@ informative:
 
 --- abstract
 
-MoqTransfork is designed to serve a broadcast to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
+MoqTransfork is designed to serve live tracks to an unbounded number of viewers with different latency and quality targets: the entire spectrum between real-time and VOD.
 MoqTransfork itself is a media agnostic transport, allowing relays and CDNs to forward the most important content under degraded networks without knowledge of codecs, containers, or even if the content is fully encrypted.
 Higher level protocols specify how to use MoqTransfork to encode and deliver video, audio, messages, or any form of live content.
 
@@ -60,13 +60,12 @@ The appendix contains a list of high level differences between MoqTransport and 
 # Concepts
 MoqTransfork consists of:
 
-- **Session**: An established connection between a client and server used to transmit any number of Broadcasts.
-- **Broadcast**: A collection of Tracks from a single producer (client). This is primarily used for routing, but Tracks within a Broadcast may be correlated.
+- **Session**: An established connection between a client and server used to transmit any number of Tracks by path.
 - **Track**: An append-only series of Groups, each of which can be delivered and decoded independently.
 - **Group**: An append-only series of Frames, each of which are delivered and decoded in order
 - **Frame**: A sized payload of bytes, intended to represent a single moment in time.
 
-The application determines how to split data into broadcasts, tracks, groups, and frames.
+The application determines how to split data into tracks, groups, and frames.
 MoqTransfork only is responsible for the networking and deduplication by utilizing rules encoded in headers.
 This provides robust and generic one-to-many transmission, even for latency sensitive applications.
 
@@ -80,34 +79,23 @@ The intent is that sessions are chained together via relays.
 A broadcaster could establish a session with an CDN ingest edge while the viewers establish separate sessions to CDN distribution edges.
 A MoqTransfork session is hop-by-hop, but the application should be designed end-to-end.
 
-## Broadcast
-A Broadcast is a collection of tracks from a single producer identified by a unique path within the session.
-A MoqTransfork session may be used to publish and subscribe to multiple, potentially unrelated, broadcasts.
-
-A broadcast path consists of string parts used to route subscriptions to the correct publisher.
-The application determines the structure and encoding of the path.
-A broadcast path MUST be unique within a session and SHOULD contain entropy to avoid collisions with other sessions, for example timestamps or random values.
-
-A publisher can advertise available broadcasts via an ANNOUNCE message.
-This allows a subscriber to dynamically discover available broadcasts based on a shared prefix.
-For example: `["meeting", 1234, "alice"]` and `["meeting", 1234, "bob"]`
-Alternatively, the application can discover broadcasts via an out-of-band mechanism.
-
-The application determines if tracks within a broadcast are correlated, perhaps utilizing a shared clock or sequence number.
-This can avoid the need for clock synchronization as a broadcast can only have one publisher.
-
-
 ## Track
-A Track is a series of Groups within a Broadcast, identified by a unique name within the Broadcast.
+A Track is a series of Groups identified by a unique path.
+A MoqTransfork session is used to publish and subscribe to multiple, potentially unrelated, tracks.
+
+A Track path consists of string parts used to route subscriptions to the correct publisher.
+The application determines the structure and encoding of the path.
+A Track path MUST be unique within a Session and SHOULD contain entropy to avoid collisions with other sessions, for example timestamps or random values.
+
+A publisher can advertise available tracks via an ANNOUNCE message.
+This allows a subscriber to dynamically discover available tracks based on a prefix.
+For example: `["meeting", "1234", "alice"]` and `["meeting", "1234", "bob"]`
+Alternatively, the application can discover tracks via an out-of-band mechanism.
 
 Each subscription is scoped to a single Track.
 A subscription will always start at a Group boundary, either the latest group or a specified sequence number.
 A subscriber chooses the ordering and priority of each subscription, hinting to the publisher which Track should arrive first during congestion.
 This is critical for a decent user experience during network degradation and the core reason why QUIC can offer real-time latency.
-
-There is currently no way to discover tracks within a broadcast; it must be negotiated out-of-band.
-This is often done with a named "catalog" track that lists all available tracks and their properties.
-An application may choose to use static and/or dynamic track names.
 
 
 ## Group
@@ -132,7 +120,7 @@ A frame should represent a single moment in time and avoid any buffering that wo
 A media protocol can only be considered "live" if it can handle degraded network congestion.
 MoqTransfork handles this by prioritizing the most important media while the remainder is starved.
 
-The importance of each broadcast/track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
+The importance of each track/group/frame is signaled by the subscriber and the publisher will attempt to obey it.
 This is done via the Track Priority and the Group Order.
 Any data that is excessively starved may be dropped (by either endpoint) rather than block the live stream.
 
@@ -217,12 +205,12 @@ A client may advertise support for multiple versions.
 The server chooses one of the supported versions, or errors if none of the listing versions are supported.
 
 ### Announce
-A subscriber can open a Announce Stream to discover broadcasts matching a prefix.
-This is OPTIONAL and the application can determine broadcast paths out-of-band.
+A subscriber can open a Announce Stream to discover tracks matching a prefix.
+This is OPTIONAL and the application can determine track paths out-of-band.
 
 The subscriber MUST start the stream with a ANNOUNCE_INTEREST message.
 The publisher MAY reply with an error code if the prefix is too expansive.
-Otherwise, the publisher SHOULD reply with an ANNOUNCE message to indicate when a broadcast has started or stopped.
+Otherwise, the publisher SHOULD reply with an ANNOUNCE message to indicate when a track has started or stopped.
 Both sides may close/reset the stream at any point.
 
 Prefix matching is done on a part-by-part basis.
@@ -232,7 +220,7 @@ The application is responsible for the encoding of the prefix, taking case to av
 There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
 
 ### Subscribe
-A subscriber can open a Subscribe Stream to request a named track within a broadcast.
+A subscriber can open a Subscribe Stream to request a Track.
 
 The subscriber MUST start a Info Stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
 The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages.
@@ -349,38 +337,38 @@ A subscriber sends an ANNOUNCE_INTEREST message to indicate it wants any cooresp
 
 ~~~
 ANNOUNCE_INTEREST Message {
-  Broadcast Prefix Parts (i),
-  [ Broadcast Prefix Part (b) ]
+  Track Prefix Parts (i),
+  [ Track Prefix Part (b) ]
 }
 ~~~
 
-**Broadcast Prefix**:
-Indicate interest for any broadcast paths that start with this prefix.
+**Track Prefix**:
+Indicate interest for any tracks that start with this prefix.
 This uses byte-for-byte matching on each prefix part.
 
 The publisher MAY close the stream with an error code if the prefix is too expansive.
-Otherwise, the publisher SHOULD respond with an ANNOUNCE message for any matching broadcasts.
+Otherwise, the publisher SHOULD respond with an ANNOUNCE message for any matching tracks.
 
 
 
 ## ANNOUNCE
-A publisher sends an ANNOUNCE message to advertise a broadcast.
+A publisher sends an ANNOUNCE message to advertise a track.
 Only the suffix is encoded on the wire, the full path is constructed by prepending the prefix from the cooresponding ANNOUNCE_INTEREST.
 
 ~~~
 ANNOUNCE Message {
   Status (i),
-  Broadcast Suffix Parts (i),
-  [ Broadcast Suffix Part (b) ]
+  Track Suffix Parts (i),
+  [ Track Suffix Part (b) ]
 }
 ~~~
 
 **Status**:
-A flag indicating if the broadcast is active (1) or ended (0).
+A flag indicating if the track is active (1) or ended (0).
 Other values are reserved for future use.
 
-**Broadcast Suffix**:
-The broadcast path suffix.
+**Track Suffix**:
+The track path suffix.
 
 
 ## SUBSCRIBE
@@ -389,9 +377,8 @@ SUBSCRIBE is sent by a subscriber to start a subscription.
 ~~~
 SUBSCRIBE Message {
   Subscribe ID (i)
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
   Track Priority (i)
   Group Order (i)
   Group Expires (i)
@@ -404,13 +391,13 @@ SUBSCRIBE Message {
 A unique idenfier chosen by the subscriber.
 A Subscribe ID MUST NOT be reused within the same session, even if the prior subscription has been closed.
 
-**Broadcast Path**:
-The part of the broadcast.
-A zero-sized path is valid but not recommended.
+**Track Path Parts**:
+The number of parts in the track path.
 
-**Track Name**:
-The name of the track.
-A zero-sized name is valid but not recommended.
+**Track Path**:
+The unique path of the track.
+The number of parts MUST be within the range of 1 to 32.
+The entire path combined MUST be smaller than 1024 bytes.
 
 **Track Priority**:
 The transmission priority of the subscription relative to all other active subscriptions within the session.
@@ -480,8 +467,7 @@ INFO Message {
 ~~~
 
 **Track Priority**:
-The priority of this track within the *broadcast*.
-Note that this is slightly different than SUBSCRIBE, which is scoped to a session not broadcast.
+The priority of this track within the session.
 The publisher SHOULD transmit subscriptions with *higher* values first during congestion.
 
 **Group Latest**:
@@ -502,9 +488,8 @@ The INFO_REQUEST message is used to request an INFO response.
 
 ~~~
 INFO_REQUEST Message {
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
 }
 ~~~
 
@@ -514,9 +499,8 @@ A subscriber can request a byte offset within a Group with a FETCH message.
 
 ~~~
 FETCH Message {
-  Broadcast Path Parts (i)
-  [ Broadcast Path Part (b) ]
-  Track Name (b)
+  Track Path Parts (i)
+  [ Track Path Part (b) ]
   Track Priority (i)
   Group Sequence (i)
   Group Offset (i)
@@ -606,7 +590,8 @@ A generic library or relay MUST NOT inspect or modify the contents unless otherw
 Notable changes between versions of this draft.
 
 ## moq-transfork-03
-- Broadcast Path consists of byte slices instead of a string.
+- Broadcast and Track have been merged.
+- Tracks now have a variable length path instead of a (broadcast, name) tuple
 - ANNOUNCE contains a status instead of toggling.
 - ANNOUNCE contains the suffix instead of the full path.
 
@@ -963,6 +948,7 @@ If viewers have the same priority/order, then the relay should use the viewer's 
 ## Broadcast
 A broadcast is a collection of tracks from a single producer.
 This usually includes an audio track and/or a video track, but there are reasons to have more than that.
+This is transparent to moq-transfork, as the a higher level application is responsible for any grouping between tracks.
 
 ### ABR
 Virtually all mass fan-out use-cases rely on Adaptive Bitrate (ABR) streaming.
@@ -1022,32 +1008,28 @@ Some applications involve multiple producers, such as a conference calls or a li
 Even though these are separate broadcasts from potentially separate origins, MoqTransfork can still serve them over the same session.
 
 ### Discovery
-The first step to joining a conference is to discover the available broadcasts.
+The first step to joining a conference is to discover the available tracks.
 
-There is currently no discovery mechanism in MoqTransfork.
-However, an application can build one on top of a MoqTransfork track (of course!).
-
-For example, suppose we have a conference room called `room.12345`.
-An index service could produce a `room.12345` track that lists all broadcasts within the room.
-When Alice joins and ANNOUNCES `room.12345.alice`, the index service could update the `room.12345` track to add a new FRAME `+alice`.
-The same can be done to remove her when she leaves.
+That's where `ANNOUNCE` comes in.
+The subscriber indicates interest in any tracks that start with a prefix, such as `["meeting", "1234"]`.
+As new participants join, new tracks are announced, and the subscriber can choose to subscribe to them.
 
 ### Participants
 Extending the idea that audio is more important than video, we can prioritize tracks regardless of the source.
 This works because `SUBSCRIBE priority` is scoped to the session and not the broadcast.
 
 ~~~
-SUBSCRIBE broadcast=alice track=audio priority=3
-SUBSCRIBE broadcast=frank track=audio priority=3
-SUBSCRIBE broadcast=alice track=video priority=1
-SUBSCRIBE broadcast=frank track=video priority=1
+SUBSCRIBE track=[alice, audio] priority=3
+SUBSCRIBE track=[frank, audio] priority=3
+SUBSCRIBE track=[alice, video] priority=1
+SUBSCRIBE track=[frank, video] priority=1
 ~~~
 
 When Alice starts talking or is focused, we can actually issue a SUBSCRIBE_UPDATE to increase her priority:
 
 ~~~
-SUBSCRIBE_UPDATE broadcast=alice track=audio priority=2
-SUBSCRIBE_UPDATE broadcast=frank track=video priority=0
+SUBSCRIBE_UPDATE track=[alice, audio] priority=2
+SUBSCRIBE_UPDATE track=[frank, video] priority=0
 ~~~
 
 Note that audio is still more important than video, but Alice is now more important than Frank. (poor Frank)
@@ -1055,10 +1037,10 @@ Note that audio is still more important than video, but Alice is now more import
 This concept can further be extended to work with SVC or ABR:
 
 ~~~
-SUBSCRIBE broadcast=alice track=360p priority=4
-SUBSCRIBE broadcast=frank track=360p priority=3
-SUBSCRIBE broadcast=alice track=720p priority=2
-SUBSCRIBE broadcast=frank track=720p priority=1
+SUBSCRIBE track=[alice, 360p] priority=4
+SUBSCRIBE track=[frank, 360p] priority=3
+SUBSCRIBE track=[alice, 720p] priority=2
+SUBSCRIBE track=[frank, 720p] priority=1
 ~~~
 
 
