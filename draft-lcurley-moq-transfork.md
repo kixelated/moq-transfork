@@ -216,12 +216,12 @@ Each ANNOUNCE message contains one of the following statuses:
 
 - `active`: a matching track is available.
 - `ended`: a previously `active` track is no longer available.
-- `current`: all active tracks have been sent.
+- `live`: all active tracks have been sent.
 
 Each track starts as `ended` can transition to and from the `active`.
 The subscriber SHOULD close the stream if it receives a duplicate status, such as two `active` statuses in a row or an `ended` without `active`.
 
-The `current` status applies to the entire stream instead of a single track.
+The `live` status applies to the entire stream instead of a single track.
 It SHOULD be sent by the publisher after all `active` ANNOUNCE messages have been sent.
 The subscriber SHOULD use this as a signal that it has caught up, for example a track may not exist.
 
@@ -382,11 +382,11 @@ A flag indicating the announce status.
 
 - `ended` (0): A path is no longer available.
 - `active` (1): A path is now available.
-- `current` (2): All active paths have been sent.
+- `live` (2): All active paths have been sent.
 
 **Track Suffix**:
 The track path suffix.
-This field is not present for status `current`, which is not elegant I know.
+This field is not present for status `live`, which is not elegant I know.
 
 
 ## SUBSCRIBE
@@ -615,7 +615,7 @@ Notable changes between versions of this draft.
 - Broadcast and Track have been merged.
 - Tracks now have a variable length path instead of a (broadcast, name) tuple
 - ANNOUNCE contains the suffix instead of the full path.
-- ANNOUNCE contains a new status: active, ended, or current.
+- ANNOUNCE contains a new status: active, ended, or live.
 - GROUP_DROP has been renamed to SUBSCRIBE_GAP.
 - FETCH is now at frame boundaries instead of byte offsets.
 - The protocol is more polite: some messages have been renamed to *_PLEASE.
