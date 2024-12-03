@@ -165,14 +165,18 @@ This session handshake is used to negotiate the MoqTransfork version and any ext
 See the Extension section for more information.
 
 
+# Streams
+MoqTransfork involves many concurrent streams.
+
+Each transactional action, such as a SUBSCRIBE, is sent over it's own stream.
+If the stream is closed, potentially with an error, the transaction is terminated.
+
 ## Bidirectional Streams
 Bidirectional streams are primarily used for control streams.
-The first byte of each stream indicates the Stream Type.
-
-The second column in this table indicates which endpoint or role will create a stream.
+There's a 1-byte STREAM_TYPE at the beginning of each stream.
 
 |------|------------|------------|
-| ID   | Type       | Role       |
+| ID   | Stream     | Creator    |
 |-----:|:-----------|------------|
 | 0x0  | Session    | Client     |
 |------|------------|------------|
@@ -188,30 +192,38 @@ The second column in this table indicates which endpoint or role will create a s
 ### Session
 The Session stream contains all messages that are session level.
 
-The client MUST open a single Session Stream immediately after establishing the QUIC/WebTransport session.
-The client sends a SESSION_CLIENT message and the server replies with a SESSION_SERVER message.
+The client MUST open a single Session Stream immediately
+After establishing the QUIC/WebTransport session, the client opens a Session Stream.
+There MUST be only one Session Stream per WebTransport session and its closure by either endpoint indicates the MoqTransfork session is closed.
+
+The client sends a SESSION_CLIENT message indicating the supported versions and extensions.
+If the server does not support any of the client's versions, it MUST close the stream with an error code and MAY close the connection.
+Otherwise, the server replies with a SESSION_SERVER message to complete the handshake.
 
 Afterwards, both endpoints SHOULD send SESSION_UPDATE messages, such as after a significant change in the session bitrate.
 
-The session remains active until the Session Stream is closed or reset by either endpoint.
-
-#### Versions
-The SESSION_CLIENT and SESSION_SERVER messages are used to negotiate versions.
 This draft's version is combined with the constant `0xff0bad00`.
-
 For example, moq-transfork-draft-03 is identified as `0xff0bad03`.
 
-A client may advertise support for multiple versions.
-The server chooses one of the supported versions, or errors if none of the listing versions are supported.
 
 ### Announce
 A subscriber can open a Announce Stream to discover tracks matching a prefix.
 This is OPTIONAL and the application can determine track paths out-of-band.
 
-The subscriber MUST start the stream with a ANNOUNCE_INTEREST message.
-The publisher MAY reply with an error code if the prefix is too expansive.
-Otherwise, the publisher SHOULD reply with an ANNOUNCE message to indicate when a track has started or stopped.
-Both sides may close/reset the stream at any point.
+The subscriber starts the stream with a ANNOUNCE_PLEASE message.
+The publisher replies with ANNOUNCE messages for any matching tracks.
+Each ANNOUNCE message contains one of the following statuses:
+
+- `active`: a matching track is available.
+- `ended`: a previously `active` track is no longer available.
+- `live`: all active tracks have been sent.
+
+Each track starts as `ended` can transition to and from the `active`.
+The subscriber SHOULD close the stream if it receives a duplicate status, such as two `active` statuses in a row or an `ended` without `active`.
+
+The `live` status applies to the entire stream instead of a single track.
+It SHOULD be sent by the publisher after all `active` ANNOUNCE messages have been sent.
+The subscriber SHOULD use this as a signal that it has caught up, for example a track may not exist.
 
 Prefix matching is done on a part-by-part basis.
 For example, a prefix of `["meeting"]` would match `["meeting", "1234"]` but not `["meeting-1234"]`.
@@ -219,19 +231,20 @@ The application is responsible for the encoding of the prefix, taking case to av
 
 There MAY be multiple Announce Streams, potentially containing overlapping prefixes, that get their own copy of each ANNOUNCE.
 
-### Subscribe
+## Subscribe
 A subscriber can open a Subscribe Stream to request a Track.
 
 The subscriber MUST start a Info Stream with a SUBSCRIBE message followed by any number SUBSCRIBE_UPDATE messages.
-The publisher MUST reply with an INFO message followed by any number of GROUP_DROPPED messages.
+The publisher MUST reply with an INFO message followed by any number of SUBSCRIBE_GAP messages.
 A publisher MAY reset the stream at any point if it is unable to serve the subscription.
 
-The publisher MUST transmit a complete Group Stream or a GROUP_DROPPED message for each Group within the subscription range.
-This means the publisher MUST transmit a GROUP_DROPPED if a Group Stream is reset.
-The subscriber SHOULD close the subscription when all GROUP and GROUP_DROP messages have been received, and the publisher MAY close the subscription after all messages have been acknowledged.
+The publisher MUST transmit a complete Group Stream or a SUBSCRIBE_GAP message for each Group within the subscription range.
+This means the publisher MUST transmit a SUBSCRIBE_GAP if a Group Stream is reset.
+The subscriber SHOULD close the subscription when all GROUP and SUBSCRIBE_GAP messages have been received, and the publisher MAY close the subscription after all messages have been acknowledged.
 
 
-### Fetch
+
+## Fetch
 A subscriber can open a Fetch Stream to receive a single Group at a specified offset.
 This is primarily used to recover from an abrupt stream termination, causing the truncation of a Group.
 
@@ -242,20 +255,20 @@ Note that this includes any FRAME messages.
 The fetch is active until both endpoints close the stream, or either endpoint resets the stream.
 
 
-### Info
+## Info
 A subscriber can open an Info Stream to request information about a track.
 This is not often necessary as SUBSCRIBE will trigger an INFO reply.
 
-The subscriber MUST start the stream with a INFO_REQUEST message.
+The subscriber MUST start the stream with a INFO_PLEASE message.
 The publisher MUST reply with an INFO message or reset the stream.
 Both endpoints MUST close the stream afterwards.
 
 
-## Unidirectional
-Unidirectional streams are used for subscription data.
+## Unidirectional Streams
+Unidirectional streams are used for data transmission.
 
 |------|--------|-----------|
-| ID   | Stream | Role      |
+| ID   | Stream | Creator   |
 |-----:|:-------|-----------|
 | 0x0  | Group  | Publisher |
 |------|--------|-----------|
@@ -264,33 +277,31 @@ Unidirectional streams are used for subscription data.
 A publisher creates Group Streams in response to a Subscribe Stream.
 
 A Group Stream MUST start with a GROUP message and MAY be followed by any number of FRAME messages.
-An application MAY use an empty GROUP and/or FRAME to signal gaps.
+A Group MAY contain zero FRAME messages, potentially indicating a gap in the track.
+A frame MAY contain an empty payload, potentially indicating a gap in the group.
 
 Both the publisher and subscriber MAY reset the stream at any time.
-When a Group stream is reset, the publisher MUST send a GROUP_DROP message on the corresponding Subscribe stream.
+When a Group stream is reset, the publisher MUST send a SUBSCRIBE_GAP message on the corresponding Subscribe stream.
 A future version of this draft may utilize reliable reset instead.
 
 
 # Encoding
 This section covers the encoding of each message.
 
-Note that these message do not currently contain a type identifier.
-The message type is determined by the stream type and the current state.
+## STREAM_TYPE
+All streams start with a short header indiciating the stream type.
 
-## Types
-Unless otherwise indicated, all types are big-endian (network order).
+~~~
+STREAM_TYPE {
+  Stream Type (i)
+}
+~~~
 
-`(i)`:
-A QUIC VarInt with a maximum size of 62-bits.
-The highest two bits in the first byte indicate the total size; 1 bytes, 2 bytes, 4 bytes or 8 bytes.
-This value is unsigned unless otherwise indicated.
-
-`(b)`:
-VarInt size followed by that many indicated bytes.
-
+The stream ID depends on if it's a bidirectional or unidirectional stream, as indicated in the Streams section.
+A reciever MUST close the session if it receives an unknown stream type.
 
 ## SESSION_CLIENT
-The client advertises supported versions and any extensions.
+The client initiates the session by sending a SESSION_CLIENT message.
 
 ~~~
 SESSION_CLIENT Message {
@@ -303,6 +314,7 @@ SESSION_CLIENT Message {
   ]...
 }
 ~~~
+
 
 ## SESSION_SERVER
 The server responds with the selected version and any extensions.
@@ -332,11 +344,11 @@ This SHOULD be sourced directly from the QUIC congestion controller.
 A value of 0 indicates that this information is not available.
 
 
-## ANNOUNCE_INTEREST
-A subscriber sends an ANNOUNCE_INTEREST message to indicate it wants any cooresponding ANNOUNCE messages.
+## ANNOUNCE_PLEASE
+A subscriber sends an ANNOUNCE_PLEASE message to indicate it wants any cooresponding ANNOUNCE messages.
 
 ~~~
-ANNOUNCE_INTEREST Message {
+ANNOUNCE_PLEASE Message {
   Track Prefix Parts (i),
   [ Track Prefix Part (b) ]
 }
@@ -357,18 +369,24 @@ Only the suffix is encoded on the wire, the full path is constructed by prependi
 
 ~~~
 ANNOUNCE Message {
-  Status (i),
-  Track Suffix Parts (i),
-  [ Track Suffix Part (b) ]
+  Announce Status (i),
+  [
+    Track Suffix Parts (i),
+    [ Track Suffix Part (b), ]
+  ],
 }
 ~~~
 
-**Status**:
-A flag indicating if the track is active (1) or ended (0).
-Other values are reserved for future use.
+**Announce Status**:
+A flag indicating the announce status.
+
+- `ended` (0): A path is no longer available.
+- `active` (1): A path is now available.
+- `live` (2): All active paths have been sent.
 
 **Track Suffix**:
 The track path suffix.
+This field is not present for status `live`, which is not elegant I know.
 
 
 ## SUBSCRIBE
@@ -454,8 +472,32 @@ This value MUST NOT be larger than prior SUBSCRIBE or SUBSCRIBE_UPDATE messages.
 If the Min and Max are updated, the publisher SHOULD reset any blocked streams that are outside the new range.
 
 
+## SUBSCRIBE_GAP
+A publisher transmits a SUBSCRIBE_GAP message when it is unable to serve a group for a SUBSCRIBE.
+
+~~~
+SUBSCRIBE_GAP {
+  Group Start (i)
+  Group Count (i)
+  Group Error Code (i)
+}
+~~~
+
+
+**Group Start**:
+The sequence number for the first group within the dropped range.
+
+**Group Count**:
+The number of additional groups after the first.
+This value is 0 when only one group is dropped.
+
+**Error Code**:
+An error code indicated by the application.
+
+
 ## INFO
 The INFO message contains the current information about a track.
+This is sent in response to a SUBSCRIBE or INFO_PLEASE message.
 
 ~~~
 INFO Message {
@@ -483,11 +525,11 @@ The group SHOULD be dropped if this duration has elapsed after group has finishe
 The Subscriber's Group Expires value SHOULD be used instead when smaller.
 
 
-## INFO_REQUEST
-The INFO_REQUEST message is used to request an INFO response.
+## INFO_PLEASE
+The INFO_PLEASE message is used to request an INFO response.
 
 ~~~
-INFO_REQUEST Message {
+INFO_PLEASE Message {
   Track Path Parts (i)
   [ Track Path Part (b) ]
 }
@@ -495,7 +537,7 @@ INFO_REQUEST Message {
 
 
 ## FETCH
-A subscriber can request a byte offset within a Group with a FETCH message.
+A subscriber can request the transmission of a (partial) Group with a FETCH message.
 
 ~~~
 FETCH Message {
@@ -503,7 +545,7 @@ FETCH Message {
   [ Track Path Part (b) ]
   Track Priority (i)
   Group Sequence (i)
-  Group Offset (i)
+  Frame Sequence (i)
 }
 ~~~
 
@@ -511,8 +553,12 @@ FETCH Message {
 The priority of the group relative to all other FETCH and SUBSCRIBE requests within the session.
 The publisher should transmit *higher* values first during congestion.
 
-**Group Offset**:
-The requested offset in bytes *after* the GROUP message.
+**Group Sequence**:
+The sequence number of the group.
+
+**Frame Sequence**:
+The starting frame number.
+All frames from this point forward are transmitted.
 
 
 ## FETCH_UPDATE
@@ -547,32 +593,8 @@ This ID is used to distinguish between multiple subscriptions for the same track
 The sequence number of the group.
 
 
-## GROUP_DROP
-A publisher transmits a GROUP_DROP message when it is unable to serve a group for a SUBSCRIBE.
-
-~~~
-GROUP_DROP {
-  Group Start (i)
-  Group Count (i)
-  Group Error Code (i)
-}
-~~~
-
-
-**Group Start**:
-The sequence number for the first group within the dropped range.
-
-**Group Count**:
-The number of additional groups after the first.
-This value is 0 when only one group is dropped.
-
-**Error Code**:
-An error code indicated by the application.
-
-
 ## FRAME
 The FRAME message is a payload at a specific point of time.
-
 
 ~~~
 FRAME Message {
@@ -592,8 +614,11 @@ Notable changes between versions of this draft.
 ## moq-transfork-03
 - Broadcast and Track have been merged.
 - Tracks now have a variable length path instead of a (broadcast, name) tuple
-- ANNOUNCE contains a status instead of toggling.
 - ANNOUNCE contains the suffix instead of the full path.
+- ANNOUNCE contains a new status: active, ended, or live.
+- GROUP_DROP has been renamed to SUBSCRIBE_GAP.
+- FETCH is now at frame boundaries instead of byte offsets.
+- The protocol is more polite: some messages have been renamed to *_PLEASE.
 
 ## moq-transfork-02
 - Document version numbers.
@@ -644,7 +669,7 @@ With MoqTransfork, the subscriber knows if a group/frame will be delivered or wa
 
 - Group Sequences are sequential
 - All sequences within the SUBSCRIBE range are delivered or dropped.
-- GROUP_DROP when a group is dropped.
+- SUBSCRIBE_GAP when a group is dropped.
 
 ### Fetch via Offset
 A reconnecting subscriber can request the retransmission of a group/stream at a given byte offset.
@@ -653,7 +678,7 @@ Resumption in MoqTransport is more complicated and can only occur at object/grou
 ### Track INFO
 Added a mechanism to request information about the current track state.
 
-- Added INFO_REQUEST and INFO
+- Added INFO_PLEASE and INFO
 - Replaced SUBSCRIBE_OK with INFO
 
 
