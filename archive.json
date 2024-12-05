@@ -1,6 +1,6 @@
 {
   "magic": "E!vIA5L86J2I",
-  "timestamp": "2024-12-03T00:10:04.736216+00:00",
+  "timestamp": "2024-12-05T00:09:05.373402+00:00",
   "repo": "kixelated/moq-transfork",
   "labels": [
     {
@@ -140,24 +140,26 @@
       "id": "PR_kwDOLz_x-M6DWCFf",
       "title": "ANNOUNCE changes",
       "url": "https://github.com/kixelated/moq-transfork/pull/4",
-      "state": "OPEN",
+      "state": "MERGED",
       "author": "kixelated",
       "authorAssociation": "OWNER",
       "assignees": [],
       "labels": [],
       "body": "",
       "createdAt": "2024-11-27T14:12:38Z",
-      "updatedAt": "2024-11-27T14:12:38Z",
+      "updatedAt": "2024-12-03T19:58:35Z",
       "baseRepository": "kixelated/moq-transfork",
       "baseRefName": "main",
       "baseRefOid": "86ef1cfd0a5d27b46c3f82191d10bc8fafa92959",
       "headRepository": "kixelated/moq-transfork",
       "headRefName": "announce-wait",
-      "headRefOid": "a9f09d689b3b3447b1f70373d006c8898e181d8d",
-      "closedAt": null,
-      "mergedAt": null,
-      "mergedBy": null,
-      "mergeCommit": null,
+      "headRefOid": "efc0c30fb11cb924b653d8cb5927931d23988462",
+      "closedAt": "2024-12-03T06:01:28Z",
+      "mergedAt": "2024-12-03T06:01:28Z",
+      "mergedBy": "kixelated",
+      "mergeCommit": {
+        "oid": "72146b0f289d20081e51a0cbf2d3e88d16c3bffd"
+      },
       "comments": [],
       "reviews": []
     }
